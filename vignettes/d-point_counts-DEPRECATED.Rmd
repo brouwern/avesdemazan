@@ -1,0 +1,79 @@
+---
+title: "f) Points counts - deprecated"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{f) Points counts - deprecated}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+
+
+Data not currently in package and anlayses not needed for paper
+
+
+### Point count data
+
+
+```{r, echo = T}
+# n_pcs <- length(unique(ecuador_pc$X))
+# 
+# n_pc_sp <- length(levels(ecuador_pc$Especie))
+```
+<!-- There are `r n_pcs` point counts. There are `r n_pc_sp` species. -->
+
+```{r Summary by year: point count, echo = T}
+# yearsite_pc <- ecuador_pc %>% 
+#   group_by(.dots = c("Specie.Code", "year", "Location")) %>% 
+#   summarise(N = n()) %>%
+#   group_by(.dots = c("Specie.Code", "year", "Location")) %>%
+#   summarise(N = n()) %>%
+#   group_by(.dots = c("year", "Location")) %>%
+#   summarise(N = n()) %>% spread(Location, N)
+# 
+# colnames(yearsite_pc)[1] <- "Year"
+# 
+# kable(yearsite_pc, caption = "Total unique species by year and location")
+# 
+# site_pc <- ecuador_pc %>%
+#   group_by(.dots = c("Specie.Code", "Location")) %>%
+#   summarise(N = n()) %>%
+#   group_by(.dots = c("Location")) %>%
+#   summarise(N = n())
+# 
+# kable(site_pc, caption = "Total unique species by location")
+# 
+# year_pc <- ecuador_pc %>%
+#   group_by(.dots = c("Specie.Code", "year")) %>%
+#   summarise(N = n()) %>%
+#   group_by(.dots = c("year")) %>%
+#   summarise(N = n()) 
+# 
+# colnames(year_pc)[1] <- "Year"
+# 
+# kable(year_pc, caption = "Total unique species by year")
+```
+
+## Rarefaction
+
+```{r Rarefaction, echo = T, warning = FALSE, fig.height = 4.15}
+# load("../data/rarefaction.RData")
+# # jpeg("MistNetRarefaction.jpg", width = 3000, height = 1500, res = 300)
+# mn3.plot + ggtitle("Mist Net Data")
+# # jpeg("PointCountRarefaction.jpg", width = 3000, height = 1500, res = 300)
+# pc.plot + ggtitle("Point Count Data")
+# dev.off()
+```

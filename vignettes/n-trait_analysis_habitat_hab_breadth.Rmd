@@ -1,0 +1,303 @@
+
+
+
+
+
+
+
+
+
+
+```{r habitat fit, echo = T}
+Habitat_table <- ecuador_id %>%
+  group_by(Band.Number, Primary_Habitat) %>%
+  summarize(PrimaryHabitat_group = length(Primary_Habitat)) %>%
+  group_by(Primary_Habitat) %>%
+  summarize(N = length(Primary_Habitat))
+
+kable(Habitat_table, caption = "Number of individuals by primary habitat")
+
+ecuador$habitat_group <- ifelse(ecuador$Primary_Habitat == "D", "D",
+                                ifelse(ecuador$Primary_Habitat == "E" | ecuador$Primary_Habitat == "N", "E or N",
+                                       ifelse(ecuador$Primary_Habitat == "F", "F",
+                                              ifelse(ecuador$Primary_Habitat == "P", "P", NA))))
+
+fit_nb2_corr_habitat <- glmmTMB(N ~ 1 +                                               # Null
+                                  habitat_group +
+                                  #habitat_group*time_cts +
+                                  Location +                                          # Location
+                                  time_cts +                                          # Continuous time variable
+                                  (1|Specie.Code:Location) +                          # Species-level intercept
+                                  (time_cts + 0|Specie.Code:Location) +
+                                  ar1(as.ordered(time_cts) + 0|Specie.Code) +         # Autocorrelation across time
+                                  offset(log(tot_net_hours)),
+                                family = nbinom2,
+                                data = ecuador)
+
+
+Habitat_tab_fit <- summary(fit_nb2_corr_habitat)$coefficients$cond
+#rownames(BodySize_tab_fit) <- c("Intercept", "Body Size 2", "Body Size 3", "Body Size 4", "Location (MAIN)", "Location (MASE)", "Time")
+
+#kable(Habitat_tab_fit, caption = "Primary habitat model fit on original scale")
+
+# Transformation
+vcov <- matrix(unlist(vcov(fit_nb2_corr_habitat)), nrow = 7)
+
+# LLAV
+Habitat_tab_fit2 <- data.frame(Estimate_Llav = c(Habitat_tab_fit[1,1],
+                                                 Habitat_tab_fit[1,1] + Habitat_tab_fit[2,1],
+                                                 Habitat_tab_fit[1,1] + Habitat_tab_fit[3,1],
+                                                 Habitat_tab_fit[1,1] + Habitat_tab_fit[4,1]))
+
+Habitat_tab_fit2$SE_Llav <- c(round(sqrt(vcov[1,1]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4]), 3))
+
+Habitat_tab_fit2$LB_Llav <- round(exp(Habitat_tab_fit2$Estimate_Llav - 1.96*Habitat_tab_fit2$SE_Llav), 5)*1000
+Habitat_tab_fit2$Est_Llav <- round(exp(Habitat_tab_fit2$Estimate_Llav), 5)*1000
+Habitat_tab_fit2$UB_Llav <- round(exp(Habitat_tab_fit2$Estimate_Llav + 1.96*Habitat_tab_fit2$SE_Llav), 5)*1000
+
+Habitat_tab_fit2$CI_Llav <- paste0("(", Habitat_tab_fit2$LB_Llav, ", ", Habitat_tab_fit2$Est_Llav, ", ", Habitat_tab_fit2$UB_Llav, ")")
+
+# MAIN
+Habitat_tab_fit2$Estimate_Main <- c(Habitat_tab_fit[1,1] + Habitat_tab_fit[5,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[2,1] + Habitat_tab_fit[5,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[3,1] + Habitat_tab_fit[5,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[4,1] + Habitat_tab_fit[5,1])
+
+Habitat_tab_fit2$SE_Main <- c(round(sqrt(vcov[1,1] +                           vcov[5,5] + 2*vcov[1,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[2,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[3,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[4,5]), 3))
+
+Habitat_tab_fit2$LB_Main <- round(exp(Habitat_tab_fit2$Estimate_Main - 1.96*Habitat_tab_fit2$SE_Main), 5)*1000
+Habitat_tab_fit2$Est_Main <- round(exp(Habitat_tab_fit2$Estimate_Main), 5)*1000
+Habitat_tab_fit2$UB_Main <- round(exp(Habitat_tab_fit2$Estimate_Main + 1.96*Habitat_tab_fit2$SE_Main), 5)*1000
+
+Habitat_tab_fit2$CI_Main <- paste0("(", Habitat_tab_fit2$LB_Main, ", ", Habitat_tab_fit2$Est_Main, ", ", Habitat_tab_fit2$UB_Main, ")")
+
+# MASE
+Habitat_tab_fit2$Estimate_Mase <- c(Habitat_tab_fit[1,1] + Habitat_tab_fit[6,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[2,1] + Habitat_tab_fit[6,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[3,1] + Habitat_tab_fit[6,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[4,1] + Habitat_tab_fit[6,1])
+
+Habitat_tab_fit2$SE_Mase <- c(round(sqrt(vcov[1,1] +                           vcov[6,6] + 2*vcov[1,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[2,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[3,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[4,6]), 3))
+
+Habitat_tab_fit2$LB_Mase <- round(exp(Habitat_tab_fit2$Estimate_Mase - 1.96*Habitat_tab_fit2$SE_Mase), 5)*1000
+Habitat_tab_fit2$Est_Mase <- round(exp(Habitat_tab_fit2$Estimate_Mase), 5)*1000
+Habitat_tab_fit2$UB_Mase <- round(exp(Habitat_tab_fit2$Estimate_Mase + 1.96*Habitat_tab_fit2$SE_Mase), 5)*1000
+
+Habitat_tab_fit2$CI_Mase <- paste0("(", Habitat_tab_fit2$LB_Mase, ", ", Habitat_tab_fit2$Est_Mase, ", ", Habitat_tab_fit2$UB_Mase, ")")
+
+Habitat_tab_fit2$Habitat <- c("D", "E or N", "F", "P")
+
+plot_habitat <- data.frame(Estimate = c(Habitat_tab_fit2$Est_Llav, Habitat_tab_fit2$Est_Main, Habitat_tab_fit2$Est_Mase),
+                           LB = c(Habitat_tab_fit2$LB_Llav, Habitat_tab_fit2$LB_Main, Habitat_tab_fit2$LB_Mase),
+                           UB = c(Habitat_tab_fit2$UB_Llav, Habitat_tab_fit2$UB_Main, Habitat_tab_fit2$UB_Mase),
+                           PrimaryHabitat = rep(Habitat_tab_fit2$Habitat, 3),
+                           Habitat = c(rep("Secondary Forest (LLAV)", 4), 
+                                       rep("Introduced Forest (MAIN)", 4),
+                                       rep("Primary Forest (MASE)", 4)),
+                           Y1 = c(3.15, 3, 2.85, 2.7,
+                                  2.15, 2, 1.85, 1.7,
+                                  1.15, 1, 0.85, 0.7),
+                           Y2 = c(3.85, 2.85, 1.85, 0.85, 
+                                  4.15, 3.15, 2.15, 1.15, 
+                                  4, 3, 2, 1))
+
+colnames(plot_habitat)[4] <- c("Primary Habitat")
+
+plot_habitat2 <- plot_habitat[,c(5,4,1,2,3)]
+colnames(plot_habitat2)[2] <- c("Primary Habitat")
+colnames(plot_habitat2)[4:5] <- c("Lower 95% Estimate", "Upper 95% Estimate")
+kable(plot_habitat2, caption = "Primary habitat model baseline capture rates per 1000 net hours")
+```
+
+We find that primary habitats E and N have significantly lower baseline capture rates than primary habitat D. We find that primary habitat F has significantly lower baseline capture rates than primary habitat D. Primary habitat P does not have significantly different baseline capture rates from primary habitat D. There is no statistically significant difference in how the capture rates change with time for the different primary habitats (i.e. all are decreasing by 2.8\% (95\% CI: 0.9-4.7\%) per year from their respective baseline capture rate). There are no statistically significant differences between the habitat types (LLAV, MAIN, MASE) in terms of baseline capture rates.
+
+
+
+```{r, echo = T, fig.height= 4}
+ggplot(aes(x = Estimate, y = Y1, color = `Primary Habitat`), data = plot_habitat) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y1, yend = Y1), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("Primary Forest (MASE)", "Introduced Forest (MAIN)", "Secondary Forest (LLAV)")) +
+  ylab("Habitat\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by primary habitat")
+
+ggplot(aes(x = Estimate, y = Y2, color = Habitat), data = plot_habitat) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y2, yend = Y2), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:4, labels = c("P", "F", "E or N", "D")) +
+  ylab("Primary Habitat\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by primary habitat")
+```
+
+
+
+```{r, echo = T}
+HabitatBreadth_table <- ecuador_id %>%
+  group_by(Band.Number, Habitat_Breadth) %>%
+  summarize(HabitatBreadth_group = length(Habitat_Breadth)) %>%
+  group_by(Habitat_Breadth) %>%
+  summarize(N = length(Habitat_Breadth))
+
+kable(HabitatBreadth_table, caption = "Number of individuals by habitat breadth")
+
+ecuador$breadth_group <- ifelse(ecuador$Habitat_Breadth == 1, "1",
+                                ifelse(ecuador$Habitat_Breadth == 2, "2",
+                                       ifelse(ecuador$Habitat_Breadth == 3, "3",
+                                             ifelse(ecuador$Habitat_Breadth > 3, "4+", NA))))
+
+fit_nb2_corr_breadth <- glmmTMB(N ~ 1 +                                               # Null
+                                  as.factor(breadth_group) +
+                                  #as.factor(breadth_group)*time_cts +
+                                  Location +                                          # Location
+                                  time_cts +                                          # Continuous time variable
+                                  (1|Specie.Code:Location) +                          # Species-level intercept
+                                  (time_cts + 0|Specie.Code:Location) +
+                                  ar1(as.ordered(time_cts) + 0|Specie.Code) +         # Autocorrelation across time
+                                  offset(log(tot_net_hours)),
+                                family = nbinom2,
+                                data = ecuador)
+
+Breadth_tab_fit <- summary(fit_nb2_corr_breadth)$coefficients$cond
+# rownames(HabitatBreadth_tab_fit) <- c("Intercept", "Body Size 2", "Body Size 3", "Body Size 4", "Location (MAIN)", "Location (MASE)", "Time")
+
+# kable(HabitatBreadth_tab_fit, caption = "Habitat breadth model fit on original scale")
+
+# Transformation
+vcov <- matrix(unlist(vcov(fit_nb2_corr_breadth)), nrow = 7)
+
+# LLAV
+Breadth_tab_fit2 <- data.frame(Estimate_Llav = c(Breadth_tab_fit[1,1],
+                                                 Breadth_tab_fit[1,1] + Breadth_tab_fit[2,1],
+                                                 Breadth_tab_fit[1,1] + Breadth_tab_fit[3,1],
+                                                 Breadth_tab_fit[1,1] + Breadth_tab_fit[4,1]))
+
+Breadth_tab_fit2$SE_Llav <- c(round(sqrt(vcov[1,1]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4]), 3))
+
+Breadth_tab_fit2$LB_Llav <- round(exp(Breadth_tab_fit2$Estimate_Llav - 1.96*Breadth_tab_fit2$SE_Llav), 5)*1000
+Breadth_tab_fit2$Est_Llav <- round(exp(Breadth_tab_fit2$Estimate_Llav), 5)*1000
+Breadth_tab_fit2$UB_Llav <- round(exp(Breadth_tab_fit2$Estimate_Llav + 1.96*Breadth_tab_fit2$SE_Llav), 5)*1000
+
+Breadth_tab_fit2$CI_Llav <- paste0("(", Breadth_tab_fit2$LB_Llav, ", ", Breadth_tab_fit2$Est_Llav, ", ", Breadth_tab_fit2$UB_Llav, ")")
+
+# MAIN
+Breadth_tab_fit2$Estimate_Main <- c(Breadth_tab_fit[1,1] + Breadth_tab_fit[5,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[2,1] + Breadth_tab_fit[5,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[3,1] + Breadth_tab_fit[5,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[4,1] + Breadth_tab_fit[5,1])
+
+Breadth_tab_fit2$SE_Main <- c(round(sqrt(vcov[1,1] +                           vcov[5,5] + 2*vcov[1,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[2,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[3,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[4,5]), 3))
+
+Breadth_tab_fit2$LB_Main <- round(exp(Breadth_tab_fit2$Estimate_Main - 1.96*Breadth_tab_fit2$SE_Main), 5)*1000
+Breadth_tab_fit2$Est_Main <- round(exp(Breadth_tab_fit2$Estimate_Main), 5)*1000
+Breadth_tab_fit2$UB_Main <- round(exp(Breadth_tab_fit2$Estimate_Main + 1.96*Breadth_tab_fit2$SE_Main), 5)*1000
+
+Breadth_tab_fit2$CI_Main <- paste0("(", Breadth_tab_fit2$LB_Main, ", ", Breadth_tab_fit2$Est_Main, ", ", Breadth_tab_fit2$UB_Main, ")")
+
+# MASE
+Breadth_tab_fit2$Estimate_Mase <- c(Breadth_tab_fit[1,1] + Breadth_tab_fit[6,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[2,1] + Breadth_tab_fit[6,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[3,1] + Breadth_tab_fit[6,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[4,1] + Breadth_tab_fit[6,1])
+
+Breadth_tab_fit2$SE_Mase <- c(round(sqrt(vcov[1,1] +                           vcov[6,6] + 2*vcov[1,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[2,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[3,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[4,6]), 3))
+
+Breadth_tab_fit2$LB_Mase <- round(exp(Breadth_tab_fit2$Estimate_Mase - 1.96*Breadth_tab_fit2$SE_Mase), 5)*1000
+Breadth_tab_fit2$Est_Mase <- round(exp(Breadth_tab_fit2$Estimate_Mase), 5)*1000
+Breadth_tab_fit2$UB_Mase <- round(exp(Breadth_tab_fit2$Estimate_Mase + 1.96*Breadth_tab_fit2$SE_Mase), 5)*1000
+
+Breadth_tab_fit2$CI_Mase <- paste0("(", Breadth_tab_fit2$LB_Mase, ", ", Breadth_tab_fit2$Est_Mase, ", ", Breadth_tab_fit2$UB_Mase, ")")
+
+Breadth_tab_fit2$Breadth <- c("1", "2", "3", "4+")
+
+plot_breadth <- data.frame(Estimate = c(Breadth_tab_fit2$Est_Llav, Breadth_tab_fit2$Est_Main, Breadth_tab_fit2$Est_Mase),
+                           LB = c(Breadth_tab_fit2$LB_Llav, Breadth_tab_fit2$LB_Main, Breadth_tab_fit2$LB_Mase),
+                           UB = c(Breadth_tab_fit2$UB_Llav, Breadth_tab_fit2$UB_Main, Breadth_tab_fit2$UB_Mase),
+                           HabitatBreadth = rep(Breadth_tab_fit2$Breadth, 3),
+                           Habitat = c(rep("Secondary Forest (LLAV)", 4), 
+                                       rep("Introduced Forest (MAIN)", 4),
+                                       rep("Primary Forest (MASE)", 4)),
+                           Y1 = c(3.15, 3, 2.85, 2.7,
+                                  2.15, 2, 1.85, 1.7,
+                                  1.15, 1, 0.85, 0.7),
+                           Y2 = c(0.85, 1.85, 2.85, 3.85, 
+                                  1.15, 2.15, 3.15, 4.15, 
+                                  1,2,3,4))
+
+colnames(plot_breadth)[4] <- c("Habitat Breadth")
+
+plot_breadth2 <- plot_breadth[,c(5,4,1,2,3)]
+colnames(plot_breadth2)[2] <- c("Habitat Breadth")
+colnames(plot_breadth2)[4:5] <- c("Lower 95% Estimate", "Upper 95% Estimate")
+kable(plot_breadth2, caption = "Habitat breadth model baseline capture rates per 1000 net hours")
+```
+
+We find that habitat breadths 2 and 3 do not differ significantly from habitat breadth 1 in terms of baseline capture rates. Habitat breadths 4+ have significantly higher baseline capture rates than habitat breadth 1. There is no statistically significant difference in how the capture rates change with time for the different habitat breadths (i.e. all are decreasing by 2.8\% (95\% CI: 0.9-4.7\%) per year from their respective baseline capture rate). We find that the baseline capture rate in MASE is significantly lower than that in LLAV after adjusting for habitat breadth and sampling session.
+
+```{r, echo = T, fig.height= 4}
+ggplot(aes(x = Estimate, y = Y1, color = `Habitat Breadth`), data = plot_breadth) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y1, yend = Y1), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("Primary Forest (MASE)", "Introduced Forest (MAIN)", "Secondary Forest (LLAV)")) +
+  ylab("Habitat\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by habitat breadth")
+
+ggplot(aes(x = Estimate, y = Y2, color = Habitat), data = plot_breadth) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y2, yend = Y2), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:4, labels = c("1", "2", "3", "4+")) +
+  ylab("Habitat Breadth\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by habitat breadth")
+```
+
+
+```{r, include = FALSE}
+png(filename = "RPlot2.png", width = 2000, height = 2000, res = 400)
+ecuador %>% group_by(time_cts, Location) %>% summarize(meanCap = mean(caps_per_1K_nethours)) %>%
+  ggplot(aes(x = time_cts, y = meanCap)) +
+  geom_line() +
+  theme_bw() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+  facet_grid(Location~., scales = "free") +
+  scale_x_continuous(breaks = 1:11, labels = 2006:2016) +
+  xlab("Year") + 
+  ylab("Captures per 1K Net Hours") 
+dev.off()
+
+png(filename = "RPlot1.png", width = 2000, height = 2000, res = 400)
+ggplot(aes(y = caps_per_1K_nethours, x = time_cts), data = ecuador) +
+    geom_line(aes(color = Specie.Code)) +
+  theme_bw() +
+    theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+    facet_grid(Location~.) +
+    scale_x_continuous(breaks = 1:11, labels = 2006:2016) +
+  xlab("Year") + 
+  ylab("Captures per 1K Net Hours")
+dev.off()
+```
+

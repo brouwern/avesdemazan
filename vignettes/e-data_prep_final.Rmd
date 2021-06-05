@@ -1,0 +1,225 @@
+---
+title: "e) Final data preparation"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{e) Final data preparation}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+
+```{r}
+# Data cleaning
+library(dplyr)      
+library(tidyr)   
+library(reshape2)
+library(stringi)  
+
+library(knitr)
+
+library(here)
+```
+
+
+## Purpose of script
+
+1. merge in species traits (e.g. diet, weight class, etc)
+1. set up continous time variable
+1. save as .RData for use in main regression analysis
+1. summarize data into total captures per sessions (pools all species into "community abundance")
+
+
+## Load data
+
+```{r}
+data("ecuador_5")
+
+## Species list
+data("Ecuador_Species_List")
+spp_trt <- Ecuador_Species_List
+```
+
+
+
+## Add species traits
+
+Species traits stored in Ecuador_Species_List, which is re-saved as spp_trt upon loading.
+
+```{r Species list, warning = FALSE, echo = T}
+# Species list (mist net)
+spp_list <- ecuador_5[,c("Specie.Code")]
+spp_list <- unique(spp_list)
+
+# Convert species list to dataframe 
+spp_list <- as.data.frame(unlist(spp_list))
+colnames(spp_list) <- c("Specie.Code")
+
+# Add indicator column (used for filtering merged dataframe)
+spp_list$ind <- rep(1,dim(spp_list)[1])
+
+# Prepare dataframes for merging
+spp_list$Specie.Code <- as.character(spp_list$Specie.Code)
+spp_trt$Specie.Code <- as.character(spp_trt$Specie.Code)
+
+# Merge dataframes
+spp_list <- full_join(spp_trt, spp_list, by = "Specie.Code")
+spp_list <- spp_list[-which(is.na(spp_list$ind) == TRUE), ]
+
+
+```
+
+
+
+
+## Merge trait data with species data
+
+```{r Species traits, warning = FALSE, echo = T}
+# 
+ecuador_5$Specie.Code <- as.character(ecuador_5$Specie.Code)
+ecuador_5 <- merge(ecuador_5, spp_list, by = "Specie.Code")
+ecuador_5$Specie.Code <- as.factor(ecuador_5$Specie.Code)
+```
+
+
+
+
+
+## Regression data setup
+
+**Inclusion criterion** We included only those species captured in 4 or more years (out of 11 years).
+
+**Regression model** We modeled capture rate as a function of time and habitat type with random intercepts and random slopes for each species nested within each habitat. We used an autoregressive(1) negative binomial model to account for correlation across time. Autoregressive(1), or AR(1), models include the response variable at the previous time point as a predictor for the current time point; that is, the observed capture rate at time $t$ is used to predict the capture rate at time $t+1$. We compared different distributions, including poisson, negative binomial, zero-inflated poisson, zero-inflated negative binomial, and the negative binomial distribution performed best.
+
+
+### Make continuous time variable
+
+```{r Make continuous time, echo = T, warning = FALSE}
+# Make continuous time variable
+# Find all unique years
+years <- unique(ecuador_5$year)
+
+# Create new column for continuous time variable
+ecuador_5$time_cts <- NA
+
+# Create continuous time variable
+for (i in 1:length(years))
+{
+  # Index current year
+  i.year <- which(ecuador_5$year == years[i])
+  
+  # Calculate time variable
+  ecuador_5$time_cts[i.year] <- ifelse(ecuador_5$session[i.year] == "PRIMERA", 3*(i-1) + 1,
+                              ifelse(ecuador_5$session[i.year] == "SEGUNDA", 3*(i-1) + 2,
+                              ifelse(ecuador_5$session[i.year] == "TERCERA", 3*(i-1) + 3,
+                                                                           NA)))
+}
+
+# Change time unit = 1 year
+ecuador_5$time_cts <- ecuador_5$time_cts/3
+
+# Subset species caught 4 or more years
+ecuador0 <- ecuador_5
+ecuador_5 <- ecuador_5 %>% filter(tot.yrs > 3)
+ecuador_5$i <- 1:dim(ecuador_5)[1]
+
+# ?
+ecuador_5 <- ecuador_5 %>% filter(time_cts < 7.6 | time_cts > 7.7)
+ecuador_5 <- ecuador_5 %>% filter(time_cts < 10.3 | time_cts > 10.4)
+```
+
+
+Time organized in 1/3 of years.  
+year 1, session PRIMERA = 0.33 year
+year 1, session SEGUNDA = 0.667 year
+year 1, session TERCERA = 1.909 year
+year 1, session SEGUNDA = 1.33 year
+
+```{r}
+summary(factor(ecuador_5$time_cts[1:10]))
+```
+
+This plot shows how it works
+```{r}
+par(mfrow = c(1,2))
+plot(time_cts ~ year_cent, data = ecuador_5)
+plot(time_cts ~ year, data = ecuador_5)
+```
+
+
+
+
+
+### Save individual-level dataframe
+
+This is the dataframe used in analyses.
+
+It is 1949  x 22
+
+```{r, eval = F}
+dim(ecuador) # 1949   22
+
+# save .csv to data-raw folder
+file. <- "ecuador.csv"
+loc. <- here::here("data-raw")
+file.full <- here::here(loc., file.)
+#exists(file.)
+write.csv(ecuador_5, file = file.full, row.names = F)
+
+
+# save .RData to data folder
+ecuador <- ecuador_5
+# usethis::use_data(ecuador, overwrite = TRUE)
+# make_dateset_helpfile(dataset = ecuador,
+#                       dataset_name = "ecuador")
+
+```
+
+
+
+## Create and save total captures
+
+This pools all captures to determine "community abundance"
+
+
+```{r}
+# Aggregate across species
+ecuador <- ecuador_5
+ecuador_tot <- ecuador %>% group_by(year, 
+                                    session, Location, 
+                                    tot_net_hours, 
+                                    time_cts) %>%
+  summarize(N = sum(N))
+
+```
+
+
+```{r, eval = F}
+dim(ecuador_tot) # 86  6
+
+# save .csv to data-raw folder
+file. <- "ecuador_tot.csv"
+loc. <- here::here("data-raw")
+file.full <- here::here(loc., file.)
+#exists(file.)
+write.csv(ecuador_tot, file = file.full, row.names = F)
+
+
+# save .RData to data folder
+usethis::use_data(ecuador_tot, overwrite = TRUE)
+# make_dateset_helpfile(dataset = ecuador_tot,
+#                       dataset_name = "ecuador_tot")
+
+```

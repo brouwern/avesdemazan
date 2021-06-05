@@ -1,0 +1,284 @@
+---
+title: "i) Plot regression coefficients"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{i) Plot regression coefficients}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+
+
+# Plots
+
+
+## Plot 1: 
+
+x = time_cts_tot
+
+next plot uses time_cts !!!
+
+
+
+```{r}
+ggplot(data = slopes, 
+       aes(x = time_cts_tot, 
+           y = spp2)) +
+  geom_point(aes(x = time_cts_tot, 
+                 y = spp2), 
+             color = "black", 
+             size = 1.5) +
+  geom_point(aes(x = time_cts_tot,   # make significant spp red
+                 y = spp2), 
+             color = "red", 
+             size = 1.5, 
+             data = subset(slopes, Sig == "Significant")) +
+  geom_segment(aes(x = time_lb2, 
+                   xend = time_ub2, 
+                   y = spp2, 
+                   yend = spp2)) +
+  geom_segment(aes(x = time_lb2, xend = time_ub2, 
+                   y = spp2, yend = spp2), 
+               color = "red", 
+               data = subset(slopes, Sig == "Significant")) +
+  facet_grid(~loc, 
+             #labeller = labeller(loc = habitat_labels)
+             ) +
+  geom_vline(aes(xintercept = 0, 
+                 color = "No Change", 
+                 linetype = "No Change"), 
+             size = 1) +
+  geom_vline(aes(xintercept = summary(fit_nb2_corr)[[6]]$cond[4,1],
+                 color = "Population-level estimate", 
+                 linetype = "Population-level estimate"), size = 1) +
+  annotate("rect", xmin= -0.04758552, xmax= -0.00882848, 
+           ymin=-Inf, ymax=Inf, 
+           alpha=0.2, fill="blue") +
+  xlab("Species-level time coefficient \n") + 
+  ylab("Species Code") +
+  scale_colour_manual(name = "Guide", 
+                      values = c("No Change" = "black", "Population-level estimate" = "blue")) +
+  scale_linetype_manual(name = "Guide", 
+                        values = c("No Change" = "dashed", "Population-level estimate" = "solid")) +
+  theme(panel.spacing = unit(1, "lines")) + 
+  theme_bw() +
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(), 
+        legend.background = element_blank(), 
+        legend.box.background = element_rect(colour = "black")) + 
+  theme(panel.spacing.x = unit(1, "lines"))
+```
+
+
+
+
+
+
+### Plot with species names 
+
+The next page has the same figure but with species names instead of species codes on the y-axis. I wasn't sure what your preference would be since the species codes look tidier, but the species names are more immediately informative. There is also an explanation of interpreting this figure on the next page.
+
+original code from Emily had x = time_cts, not x = time_cts_tot
+
+
+```{r, echo = T, fig.height = 7.25}
+figure1 <- ggplot(data = slopes, 
+       aes(#x = time_cts, 
+           x = time_cts_tot,
+           y = Species_SciName2)) +
+  geom_point(aes(#x = time_cts, 
+           x = time_cts_tot,
+                 y = Species_SciName2), 
+             color = "black", size = 1.5) +
+  geom_point(aes(#x = time_cts, 
+           x = time_cts_tot,
+                 y = Species_SciName2), 
+             color = "red", size = 1.5, 
+             data = subset(slopes, 
+                           Sig == "Significant")) +
+  geom_segment(aes(x = time_lb2, 
+                   xend = time_ub2, 
+                   y = Species_SciName2, 
+                   yend = Species_SciName2)) +
+  geom_segment(aes(x = time_lb2,
+                   xend = time_ub2, 
+                   y = Species_SciName2, 
+                   yend = Species_SciName2),
+               color = "red", 
+               data = subset(slopes, Sig == "Significant")) +
+  facet_grid(~loc, 
+            # labeller = labeller(loc = habitat_labels)
+             ) +
+  geom_vline(aes(xintercept = 0, 
+                 color = "No Change",
+                 linetype = "No Change"), size = 1) +
+  geom_vline(aes(xintercept = summary(fit_nb2_corr)[[6]]$cond[4,1], 
+                 color = "Population-level estimate", 
+                 linetype = "Population-level estimate"), 
+             size = 1) +
+  annotate("rect", xmin= -0.04758552, xmax= -0.00882848, ymin=-Inf, ymax=Inf, alpha=0.2, fill="blue") +
+  xlab("Species-level time coefficient \n") + 
+  ylab("Species Code") +
+  scale_colour_manual(name = "Guide", 
+                      values = c("No Change" = "black", 
+                                 "Population-level estimate" = "blue")) +
+  scale_linetype_manual(name = "Guide", 
+                        values = c("No Change" = "dashed", 
+                                   "Population-level estimate" = "solid")) +
+  theme(panel.spacing = unit(1, "lines")) + 
+  theme_bw() +
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(), 
+        legend.background = element_blank(), 
+        legend.box.background = element_rect(colour = "black")) + 
+  theme(panel.spacing.x = unit(1, "lines")) +
+  theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=14,
+                                face="bold"))
+figure1
+```
+
+
+```{r}
+ggsave(plot = figure1, file = "figure1.png")
+```
+
+
+
+
+The above figure shows the estimated time effect for each species as well as the population-level time effect (i.e. the fitted slope). The population-level time effect is -0.0282; this is on the log scale because we used the negative binomial distribution. To obtain a meaningful value, we exponentiate this coefficient to obtain $e^{-0.0282} = 0.972$. This means that the population, as a whole, is estimated to decrease by 2.8\% between years (i.e. 2006 to 2007, 2007 to 2008, etc.). The light blue shaded region shows the 95\% confidence interval for the population-level time effect (-0.0476, -0.0088). This transforms to (0.954, 0.991). A figure with the transformed values is on page 9 and a table with transformed values is on page 10. **
+
+## Plot 
+
+```{r, echo = T}
+slopes2 <- slopes %>% 
+  dplyr::select(time_cts, time_lb2, time_ub2, Species_SciName2, loc) %>% 
+  mutate(CI = paste0("(",round(time_lb2,3),", ", round(time_cts,3), ", ", round(time_ub2,3), ")")) %>%
+  dplyr::select(CI, Species_SciName2, loc) %>%
+  group_by(Species_SciName2) %>% 
+  spread(loc, CI)
+colnames(slopes2) <- c("Species", "Secondary forest (LLAV)", "Introduced forest (MAIN)", "Primary forest (MASE)")
+slopes2$`Secondary forest (LLAV)` <- ifelse(is.na(slopes2$`Secondary forest (LLAV)`) == TRUE, " ", slopes2$`Secondary forest (LLAV)`)
+slopes2$`Introduced forest (MAIN)` <- ifelse(is.na(slopes2$`Introduced forest (MAIN)`) == TRUE, " ", slopes2$`Introduced forest (MAIN)`)
+slopes2$`Primary forest (MASE)` <- ifelse(is.na(slopes2$`Primary forest (MASE)`) == TRUE, " ", slopes2$`Primary forest (MASE)`)
+kable(slopes2, caption = "Log scale species-level estimates \n (95% CI lower bound, estimate, 95% CI upper bound)")
+```
+
+
+
+Plot - ....
+
+```{r, echo = T, fig.height = 7.0}
+# original in script from Emily
+# slopes$time_exp <- exp(slopes$time_cts)
+# slopes$lb2_exp <- exp(slopes$time_lb2)
+# slopes$ub2_exp <- exp(slopes$time_ub2)
+
+slopes$time_exp <- exp(slopes$time_cts_tot)
+slopes$lb2_exp <- exp(slopes$time_lb2)
+slopes$ub2_exp <- exp(slopes$time_ub2)
+time_cts_tot
+
+figure01 <- ggplot(data = slopes, 
+       aes(x = time_exp, 
+           y = slopes$Species_SciName2)) +
+  geom_point(aes(x = time_exp, 
+                 y = Species_SciName2), 
+             color = "black", 
+             size = 1.5) +
+  geom_point(aes(x = time_exp, 
+                 y = Species_SciName2), color = "red", size = 1.5, data = subset(slopes, Sig == "Significant")) +
+  geom_segment(aes(x = lb2_exp, xend = ub2_exp, y = Species_SciName2, yend = Species_SciName2)) +
+  geom_segment(aes(x = lb2_exp, xend = ub2_exp, y = Species_SciName2, yend = Species_SciName2), color = "red", data = subset(slopes, Sig == "Significant")) +
+  facet_grid(~loc, labeller = labeller(loc = habitat_labels)) +
+  geom_vline(aes(xintercept = 1, color = "No Change", linetype = "No Change"), size = 1) +
+  geom_vline(aes(xintercept = exp(summary(fit_nb2_corr)[[6]]$cond[4,1]), color = "Population-level estimate", linetype = "Population-level estimate"), size = 1) +
+  annotate("rect", xmin = exp(-0.04758552), xmax = exp(-0.00882848), ymin=-Inf, ymax=Inf, alpha=0.2, fill="blue") +
+  xlab("Species-level time coefficient \n") + ylab("Species Code") +
+  scale_colour_manual(name = "Guide", values = c("No Change" = "black", "Population-level estimate" = "blue")) +
+  scale_linetype_manual(name = "Guide", values = c("No Change" = "dashed", "Population-level estimate" = "solid")) +
+  theme(panel.spacing = unit(1, "lines")) + theme_bw() +
+  theme(legend.position = "bottom", legend.title = element_blank(), legend.background = element_blank(), legend.box.background = element_rect(colour = "black")) + theme(panel.spacing.x = unit(1, "lines"))+
+  theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=14,
+                                face="bold"))
+
+
+figure01
+```
+
+
+Save plot
+```{r}
+scaling <- 0.65
+ggsave(plot = figure01, file = "figure01_species_slopes.png",height = 11*scaling, width = 9*scaling)
+```
+
+
+
+The points and bands correspond to species-level estimates and 95% confidence intervals, respectively. Black points and bands denote species with statistically non-significant trends and red points and bands denote species with statistically significant trends. All species-level point estimates indicate declining capture rates. Out of 70 unique species, 38 met the inclusion criteria. Of these, 3 have significant trends; these species include the mountain velvetbreast (\textit{Lafresnaya lafresnayi}), sapphire-vented puffleg (\textit{Eriocnemis luciani}), and black-tailed trainbearer (\textit{Lesbia victoriae}). The values can be interpreted as percent change in capture rate; a value of 0.95 means that each successive year will have a capture rate that is 95\% the previous capture rate (or, in other words, the capture rate will decrease by 5\% from one year to the next). 
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Slopes table
+
+```{r, echo = T}
+slopes3 <- slopes %>% 
+  dplyr::select(time_exp, lb2_exp, ub2_exp, Species_SciName2, loc) %>% 
+  mutate(CI = paste0("(",round(lb2_exp,3),", ", round(time_exp,3), ", ", round(ub2_exp,3), ")")) %>%
+  dplyr::select(CI, Species_SciName2, loc) %>%
+  group_by(Species_SciName2) %>% 
+  spread(loc, CI)
+colnames(slopes3) <- c("Species", 
+                       "SHRUB",  #
+                       "MIXED", #
+                       "NATIVE")    #
+
+# slopes3$`Secondary forest (LLAV)` <- ifelse(is.na(slopes3$`Secondary forest (LLAV)`) == TRUE,
+#                                             " ", 
+#                                             slopes3$`Secondary forest (LLAV)`)
+# slopes3$`Introduced forest (MAIN)` <- ifelse(is.na(slopes3$`Introduced forest (MAIN)`) == TRUE, 
+#                                              " ", 
+#                                              slopes3$`Introduced forest (MAIN)`)
+# slopes3$`Primary forest (MASE)` <- ifelse(is.na(slopes3$`Primary forest (MASE)`) == TRUE, 
+#                                           " ", 
+#                                           slopes3$`Primary forest (MASE)`)
+
+
+slopes3$SHRUB <- ifelse(is.na(slopes3$SHRUB) == TRUE,
+                                            " ", 
+                                            slopes3$SHRUB)
+slopes3$MIXED <- ifelse(is.na(slopes3$MIXED) == TRUE, 
+                                             " ", 
+                                             slopes3$MIXED)
+slopes3$NATIVE <- ifelse(is.na(slopes3$NATIVE) == TRUE, 
+                                          " ", 
+                                          slopes3$NATIVE)
+
+kable(slopes3, caption = "Transformed species-level estimates (95% CI lower bound, estimate, 95% CI upper bound)")
+```
+
+The population-level estimate is (0.954, 0.972, 0.991). That is, we estimate a 2.8\% decrease in capture rates between years (95\% CI: 0.9-4.6\%).

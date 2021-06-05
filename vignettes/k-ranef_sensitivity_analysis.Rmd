@@ -1,0 +1,93 @@
+---
+title: "k) Random effects sensitivity analysis"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{k) Random effects sensitivity analysis}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+
+## Sensitivity Analysis
+
+```{r, echo = T, fig.height = 5}
+# ecuador0 <- ecuador0 %>% filter(time_cts < 7.6 | time_cts > 7.7)
+# ecuador0 <- ecuador0 %>% filter(time_cts < 10.3 | time_cts > 10.4)
+# 
+# sensitivity <- ecuador0 %>%
+#   distinct(Specie.Code, Location, tot.yrs) %>%
+#   arrange(tot.yrs) %>%
+#   filter(is.na(tot.yrs) == FALSE) %>%
+#   mutate(ID = paste0(Specie.Code, ":", Location)) %>%
+#   filter(tot.yrs > 2)
+# 
+# ecuador0$ID <- paste0(ecuador0$Specie.Code, ":", ecuador0$Location)
+# 
+# pop_trend <- c()
+# 
+# for (i in 1:95)
+# {
+#   species_use <- unlist(sensitivity$ID)[i:172]
+# 
+#   ecuador_temp <- ecuador0 %>%
+#     filter(ID %in% species_use)
+# 
+#   fit_nb2_temp <- glmmTMB(N ~ 1 +                                         # Null
+#                             Location +                                    # Location
+#                             time_cts +                                    # Continuous time variable
+#                             (1|Specie.Code:Location) +                    # Species-level intercept
+#                             (time_cts + 0|Specie.Code:Location) +         # Species-level slopes
+#                             ar1(as.ordered(time_cts) + 0|Specie.Code) +   # Autocorrelation across time
+#                             offset(log(tot_net_hours)),                   # Offset effort
+#                           family = nbinom2,
+#                           data = ecuador_temp)
+# 
+#   pop_trend[i] <- summary(fit_nb2_temp)$coefficients$cond[4]
+# 
+#   randomslopes <- ranef(fit_nb2_temp)[[1]]$`Specie.Code:Location`
+#   randomslopes$time_cts <- randomslopes$time_cts + pop_trend[i]
+#   randomslopes$ID <- rownames(ranef(fit_nb2_temp)[[1]]$`Specie.Code:Location`)
+#   randomslopes <- randomslopes[,-1]
+# 
+#   sensitivity <- left_join(sensitivity, randomslopes, by = c("ID" = "ID"))
+# 
+#   print(i)
+# }
+
+#save(sensitivity, file = "sensitivity.RData")
+#save(sensitivity, pop_trend, file = "sensitivity2.RData")
+#save(sensitivity, pop_trend, file = "sensitivity3.RData")
+load("sensitivity3.RData")
+
+sensitivity2 <- sensitivity
+sensitivity2 <- sensitivity2[,4:dim(sensitivity2)[2]]
+colnames(sensitivity2) <- c("ID",1:95)
+
+sensitivity3 <- sensitivity2 %>% group_by(ID) %>% gather("Time", "Value", 2:96)
+
+pop <- data.frame(pop_trend = pop_trend, Time = 1:95)
+ggplot(aes(x = as.integer(Time), y = Value, color = ID), data = sensitivity3) +
+  geom_line(na.rm = TRUE) +
+  geom_line(aes(x = Time, y = pop_trend), color = "black", size = 1, data = pop) +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(0,95)) +
+  xlab("Model Fit") +
+  ylab("Species-specific slope") +
+  geom_vline(xintercept = 27, size = 1)
+```
+
+The sensitivity analysis gauges how much the inclusion of any given species affects the overall model predictions. Ideally, predictions are relatively stable. We don't want to see dramatic spikes because this would indicate one species is heavily influencing estimates. Small fluctuations are to be expected because each time we're fitting the model to a slightly different dataset. I think the sensitivity analysis looks good and indicates our model is stable. The black horizontal line shows the population-level estimate and the other colorful lines each represent a species/habitat combo and its specific estimate. Mechanistically, this is what's happening: I fit our model starting with species observed 3 or more years and iteratively removed species/habitat combinations from the regression. I removed species/habitat combinations in order of least observed years to most observed years. After removing each species/habitat combination, I refit the model and looked at how much species-specific estimates changed in the absence of the previously included species. Each of these fits is along the x-axis with the new species-specific slope along the y-axis. The black vertical line shows the cutoff for our model based on only including species observed 4 or more years (these are the results we're using). I continued this iterative process up to only including species observed 7 or more years. 
+

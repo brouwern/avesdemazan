@@ -1,0 +1,477 @@
+---
+title: "f) Mist net data prep - NOT RUN"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{f) Mist net data prep - NOT RUN}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = F
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+This is a version of the data cleaning/prep script used by Emily Scott to prepare the data.  As of June 4 2021 it has not been checked or integrated into this compendium and is assumed to be correct.
+
+The original file name was Ecuador_Analysis_DataPrep.Rmd
+
+## Load packages
+```{r, warning = FALSE, message = FALSE}
+library(lme4)
+library(arm)
+library(tidyverse)
+library(reshape2)
+library(gridExtra)
+library(rgl)
+library(stringi)
+```
+
+## Load data
+```{r, warning = FALSE, message = FALSE}
+# Location
+#loc <- "C:/Users/emily/OneDrive/Desktop/Ecuador"
+
+# Load uncleaned data set 
+#ecuador <- read.csv(file = paste0(loc, "/Banding Sheet 2.csv"))
+
+# Load species trait data
+#spp_trait <- read.csv(file = paste0(loc, "/Ecuador_Species_List.csv"))
+
+# Load net hours
+#net_hours <- read.csv(file = paste0(loc, "/Net_Hours.csv"))
+```
+
+## Preliminary look at data
+```{r}
+# Column names
+names(ecuador)
+
+# Rename first column to "RU" from ?..RU 
+colnames(ecuador)[1] <- "RU"
+
+# Check column names again
+names(ecuador)
+```
+
+## RU: An identity number for each record of the base. A unique record. 
+```{r}
+# Make sure there are no duplicates or missing entries
+summary(ecuador$RU)
+which(ecuador$RU == "")
+which(is.na(ecuador$RU) == TRUE)
+```
+
+## Band number: The unique number of each band to identify an individual.
+```{r}
+# Summary
+summary(ecuador$Band.Number)
+
+# Find all "99999" entries
+i.band.number <- which(ecuador$Band.Number == "99999"|
+                       ecuador$Band.Number == "SIN ANILLO")
+
+# Store those cells in table for inspection
+prep.band.number <- ecuador[i.band.number,]
+prep.band.number
+
+# Fill 99999 cells with "NA"
+ecuador$Band.Number[i.band.number] <- NA
+
+# Double-check for empty cells
+which(ecuador$Band.Number == "")
+
+# Fill empty cell
+ecuador$Band.Number[which(ecuador$Band.Number == "")] <- NA
+
+# Summarize and store results
+# Confirm empty cells have been filled with "NA" 
+summary.band.number <- summary(ecuador$Band.Number)
+summary.band.number
+```
+
+## Code: Band code, N: new, R: recapture, D: destroyed, L: Lost, U: unbanded.
+```{r}
+# Summary
+summary(ecuador$Code)
+
+# Find all entries that contain entries (N, R, D, L, U)
+i.code <- which(ecuador$Code %in% c("N","R","D","L","U"))
+
+# Create table that contains all non-standard entries
+prep.code <- ecuador[-(i.code),]
+prep.code
+
+# Fill empty cells with "NA"
+ecuador$Code[which(ecuador$Code == "")] <- NA
+
+# Summarize and store results
+# Confirm that empty cells have been filled with "NA" 
+summary.code <- summary(ecuador$Code)
+summary.code
+
+# Double-check for empty cells
+which(ecuador$Code == "")
+```
+
+## Species name: the scientific name of the species.
+```{r}
+# Summary
+summary(ecuador$Specie.Name)
+
+# Convert to character
+ecuador$Specie.Name <- as.character(ecuador$Specie.Name)
+
+# Find all entries that are either empty or contain "99999"
+i.spp.name <- which(ecuador$Specie.Name == "" | 
+                    ecuador$Specie.Name == "99999" | 
+                    ecuador$Specie.Name == "9" |
+                    ecuador$Specie.Name == "99"|
+                    ecuador$Specie.Name == "U")
+
+# Create table that contains all cells missing species information
+prep.spp.name <- ecuador[i.spp.name,]
+prep.spp.name
+
+# Overwrite cells missing species information with "NA"
+ecuador$Specie.Name[i.spp.name] <- NA
+
+# Summarize and store results
+# Confirm that cells missing species information have been filled with "NA" (expect 94)
+summary.spp.name <- summary(ecuador$Specie.Name)
+summary.spp.name
+
+# Double-check for empty cells
+which(ecuador$Specie.Name == "")
+
+# Email from Steve Dec 06, 2017
+# There is a tapaculo that was split into two species. 
+# It looks like we have both in our data base but they should ALL be S. latrans 
+# (S. unicolor is the old species name before the split and now represents a different species). 
+# Change the unicolor to latrans so we only have one.
+# No instances of S. unicolor
+which(ecuador$Specie.Name == "SCYTALOPUS UNICOLOR")
+
+# Fix POROARIA CORONATA --> PAROARIA CORONATA
+ecuador[which(ecuador$Specie.Name == "POROARIA CORONATA"),"Specie.Name"] <- "PAROARIA CORONATA"
+```
+
+## Species code: the first two letters of the genus and the first two letters of the species.
+```{r}
+# Summary
+summary(ecuador$Specie.Code)
+
+# Change Specie.Code to character
+ecuador$Specie.Code <- as.character(ecuador$Specie.Code)
+
+# Find all entries that are either empty or contain "9999"
+i.spp.code <- which(ecuador$Specie.Code == "" | 
+                    ecuador$Specie.Code == "9999" | 
+                    ecuador$Specie.Code == "9"|
+                    ecuador$Specie.Code == "U")
+
+# Create table that contains all cells missing species code information
+prep.spp.code <- ecuador[i.spp.code,]
+prep.spp.code
+
+# Overwrite cells missing species code information with "NA"
+ecuador$Specie.Code[i.spp.code] <- NA
+
+# Summarize and store results
+# Confirm that cells missing species code information have been filled with "NA" 
+summary.spp.code <- summary(ecuador$Specie.Code)
+summary.spp.code
+
+# Double-check for empty cells
+which(ecuador$Specie.Code == "")
+
+# Fix POCO to PACO
+# POROARIA CORONATA --> PAROARIA CORONATA
+i.POCO <- which(ecuador$Specie.Code == "POCO")
+ecuador[i.POCO,"Specie.Code"] <- "PACO"
+
+# Fix CHMU to CHVE
+i.CHMU <- which(ecuador$Specie.Code == "CHMU")
+ecuador[i.CHMU,"Specie.Code"] <- "CHVE"
+```
+
+## Date: The date that the bird was captured or recaptured.
+```{r}
+# Look at date column
+summary(ecuador$Date)
+
+# Format: dd-mm-yyyy
+ecuador$date2 <- as.Date(ecuador$Date, format = "%d-%b-%y")
+
+## Create columns for year, month, day
+library(lubridate)
+ecuador$year  <- year(ecuador$date2)
+ecuador$month <- month(ecuador$date2)
+ecuador$day   <- day(ecuador$date2)
+summary(ecuador$date2)
+
+# Fix Segunda 13 date 
+i.date <- which(ecuador$date2 == "2012-10-11" & ecuador$Session == "SEGUNDA 13")
+ecuador[i.date,"date2"] <- as.Date("11-Oct-13", format = "%d-%b-%y")
+ecuador[which(ecuador$Session == "SEGUNDA 13"),]
+```
+
+## Location: There are two study locations: a) LLAVIUCU and b) MAZAN, and two sites per locations. 
+## In location a) the sites are a.1) LLAV and a.2) SANA 
+## In location b) the sites are b.1) MASE and B.2) MAIN
+```{r}
+# Summary
+summary(ecuador$Location)
+
+# Find those cells
+i.location <- which(ecuador$Location == "")
+
+# Create table that contains these entries
+prep.location <- ecuador[i.location,]
+prep.location
+
+# Fill empty cells with "NA"
+ecuador$Location[which(ecuador$Location == "")] <- NA
+
+# Summarize and store results
+# Confirm that empty cells have been filled with "NA" 
+summary.location <- summary(ecuador$Location)
+summary.location
+
+# Double-check for empty cells
+which(ecuador$Location == "")
+```
+
+## Location2: Create column containing Llaviucu and Mazan (i.e. group LLAV & SANA, and group MASE & MAIN)
+```{r}
+# Index locations
+i.llaviucu <- which(ecuador$Location == "LLAV" | ecuador$Location == "SANA")
+i.mazan    <- which(ecuador$Location == "MASE" | ecuador$Location == "MAIN")
+
+# Create column to store location
+ecuador[i.llaviucu,"location2"] <- "Llaviucu"
+ecuador[i.mazan,"location2"] <- "Mazan"
+
+# Change entries to be factors
+ecuador$location2 <- as.factor(ecuador$location2)
+
+# Look at location summary
+summary(ecuador$location2)
+```
+
+# Habitat type
+```{r}
+# Create empty habitat column
+ecuador$Habitat <- NA
+
+# MASE is primary forest
+ecuador[which(ecuador$Location == "MASE"),]$Habitat <- "forest.prim"
+
+# MAIN is introduced forest
+ecuador[which(ecuador$Location == "MAIN"),]$Habitat <- "forest.intro"
+
+# LLAV is secondary forest
+ecuador[which(ecuador$Location == "LLAV"),]$Habitat <- "forest.sec"
+```
+
+# Session
+```{r}
+# Create new column that doesn't include year (i.e. PRIMERA 16 --> PRIMERA; SEGUNDA 16 --> SEGUNDA; etc)
+ecuador$session2 <- substr(ecuador$Session, 0, 7)
+
+# Manually fix error (Late September sampling categorized as primera should be tercera)
+ecuador[which(ecuador$Session == "PRIMERA 16" & ecuador$month == "9"),"session2"] <- "TERCERA"
+
+# Extra session data entered as EXTRA 2016
+# Re-enter as SEGUNDA so it gets grouped with appropriate data
+ecuador[which(ecuador$Session == "EXTRA 2016"),"session2"] <- "SEGUNDA"
+```
+
+# Merge species traits
+```{r}
+ecuador$Specie.Code   <- as.character(ecuador$Specie.Code)
+spp_trait$Specie.Code <- as.character(spp_trait$Specie.Code)
+ecuador <- left_join(ecuador, spp_trait, by = "Specie.Code")
+```
+
+# Omit species
+```{r}
+# Steve said to omit ACVE, NOMU
+# From Dec 6, 2017 email: There are a few species to omit (things that generally fly over and so are excluded from the analyses)
+ 
+# Index
+i.ACVE <- which(ecuador$Specie.Code == "ACVE")
+ecuador <- ecuador[-i.ACVE,]
+i.NOMU <- which(ecuador$Specie.Code == "NOMU")
+ecuador <- ecuador[-i.NOMU,]
+```
+
+# Create dataset that includes everything (Dataset 1)
+```{r, message = FALSE, warning = FALSE}
+write.csv(ecuador, paste0(loc, "/ecuador_1.csv"))
+```
+
+# Create dataset that excludes SANA (Dataset 2)
+```{r, message = FALSE, warning = FALSE}
+# Index SANA
+i.SANA <- which(ecuador$Location == "SANA")
+ecuador2 <- ecuador[-i.SANA,]
+write.csv(ecuador2, paste0(loc, "/ecuador_2.csv"))
+```
+
+# Create dataset that excludes SANA, SEGUNDA 13, TERCERA 13 (Jan), PRIMERA 16, March 2017 data (Dataset 3)
+```{r, message = FALSE, warning = FALSE}
+i.segunda13 <- which(ecuador2$Session == "SEGUNDA 13")
+i.tercera13 <- which(ecuador2$Session == "TERCERA 13" & ecuador2$month == 1)
+i.primera16 <- which(ecuador2$Session == "PRIMERA 16")
+i.2017      <- which(ecuador2$year == "2017")
+i.drop <- c(i.segunda13, i.tercera13, i.primera16, i.2017)
+ecuador3 <- ecuador2[-i.drop,]
+write.csv(ecuador3, paste0(loc, "/ecuador_3.csv"))
+```
+
+# Create dataset that exluces SEGUNDA 13, TERCERA 13, PRIMERA 16, PRIMERA 17 (Dataset 4)
+```{r, message = FALSE, warning = FALSE}
+i.segunda13 <- which(ecuador2$Session == "SEGUNDA 13")
+i.tercera13 <- which(ecuador2$Session == "TERCERA 13")
+i.primera16 <- which(ecuador2$Session == "PRIMERA 16")
+i.2017      <- which(ecuador2$year == "2017")
+i.drop <- c(i.segunda13, i.tercera13, i.primera16, i.2017)
+ecuador4 <- ecuador2[-i.drop,]
+write.csv(ecuador4, paste0(loc, "/ecuador_4.csv"))
+```
+
+# Create working dataset
+# Use dataset 3
+# Retain the relevant columns
+```{r, message = FALSE, warning = FALSE}
+# Create working dataset
+ecuador_working <- ecuador3[,c("Band.Number","Band.Size","Specie.Name","Specie.Code",
+                               "Date","Location","Session","date2","year",
+                               "month","day","location2","Habitat","session2",
+                               "Body_Size", "Diet", "Foraging_Strata", "Primary_Habitat",
+                               "Habitat_Breadth","Rarity_Range_Size", "Rarity_Local_Abund", 
+                               "Rarity_Neotrop_Abund")]
+# Remove rows with missing species code
+i.drop <- which(is.na(ecuador_working$Specie.Code) == TRUE)
+ecuador_working <- ecuador_working[-i.drop,]
+write.csv(ecuador_working, paste0(loc, "/ecuador_working.csv"))
+```
+
+# Create dataframe in long format that includes net hours
+```{r}
+# Prepare net hours dataframe
+net_hours$Date2 <- as.Date(net_hours$Date, format = "%m/%d/%Y")
+net_hours$year <- year(net_hours$Date2)
+net_hours$session2 <- substr(net_hours$Session, 0, 7)
+
+# Remove session == EXTRA 2016 and location == SANA (not used in analysis)
+net_hours <- net_hours[-which(net_hours$Session == "EXTRA 2016"),]
+net_hours <- net_hours[-which(net_hours$Location == "SANA"),]
+
+# Remove 2006 and 2007 because some data is missing 
+# Values added by hand subsequently
+net_hours <- net_hours[-which(net_hours$year == 2006 | net_hours$year == 2007),]
+
+# Create variable to merge net hours with capture data
+net_hours$groupby <- paste(net_hours$session2, net_hours$year, net_hours$Location, sep = ".")
+net_hours2 <- group_by(net_hours, groupby) %>%
+  summarize(tot_net_hours = sum(Total.Net.Hours))
+net_hours2$groupby <- as.character(net_hours2$groupby)
+
+# Recreate year, location, session columns
+net_hours2$session2 <- substr(net_hours2$groupby, 1, 7)
+net_hours2$year <- substr(net_hours2$groupby, 9, 12)
+net_hours2$Location <- substr(net_hours2$groupby, 14, 17)
+
+# Add missing data
+net_hours_missing <- data.frame(year = c(rep(2006, 9), rep(2007, 9)),
+                                Location = c(rep("LLAV", 3), rep("MAIN", 3), rep("MASE", 3),
+                                             rep("LLAV", 3), rep("MAIN", 3), rep("MASE", 3)),
+                                session2 = c(rep(c("PRIMERA", "SEGUNDA", "TERCERA"), 6)),
+                                tot_net_hours = c(256.3, 291.6, 282.0, 
+                                                  326.6, 245.2, 160.0, 
+                                                  300.9, 288.4, 220.0,
+                                                  311.0, 256.6, 320.0,
+                                                  237.5, 233.4, 251.6,
+                                                  281.6, 293.4, 300.0))
+
+net_hours_missing$groupby <- paste(net_hours_missing$session2, net_hours_missing$year, net_hours_missing$Location, sep = ".")
+
+# Bind existing data with manually entered data
+net_hours <- rbind(net_hours2, net_hours_missing)
+```
+
+```{r}
+# Remove capture data entries from EXTRA 2016 
+i.drop <- which(ecuador_working$Session == "EXTRA 2016")
+e1 <- ecuador_working[-i.drop,]
+
+# Reshape data to long format
+e2 <- dcast(e1, formula = Specie.Code + Location + session2 + year ~ . , value.var = "Band.Number", length)
+colnames(e2)[5] <- "N"
+
+# Add zeros
+merge <- expand.grid(Specie.Code = unique(e2$Specie.Code),
+                     year        = unique(e2$year),
+                     session2    = unique(e2$session2),
+                     Location    = unique(e2$Location))
+merge$merge <- paste(merge$Specie.Code, merge$Location, merge$session2, sep = ".")
+e2$merge    <- paste(e2$Specie.Code,    e2$Location,    e2$session2,    sep = ".")
+e3 <- merge(merge, e2, by = c("merge", "year"), all = TRUE)
+i.zero <- which(is.na(e3$N))
+e3[i.zero,"N"] <- 0
+e3$i <- 1:dim(e3)[1]
+e3 <- e3[,c("Specie.Code.x","year","session2.x","Location.x","N","i")]
+names(e3) <- c("Specie.Code", "year", "session", "Location", "N", "i")
+# Create variable to merge capture data with net hours
+e3$groupby <- paste(e3$session, e3$year, e3$Location, sep = ".")
+e3$groupby <- as.character(e3$groupby)
+# Merge capture data with net hours
+e4 <- left_join(e3, net_hours, by = "groupby")
+# Add caps per 1000 net hours
+e4$caps_per_1K_nethours <- with(e4, N/tot_net_hours * 1000)
+# Aside: reshape to wide format
+e5 <- dcast(e1, formula = Specie.Code + Location + session2 ~ year, value.var = "year", length)
+# Define function to modify entries to presence/absence
+fx01 <- function(x)
+{
+  ifelse(x > 0, 1, 0)
+}
+# Convert to presence/absence 
+e5[ , -c(1:3)] <- apply(e5[ -c(1:3)], 2, fx01)
+# Sum rows to calculate total number of years captured
+e5$tot.yrs <- rowSums(e5[ , -c(1:3)])
+# Remove rows of data associated with annual captures
+e5 <- e5[ , -c(4:14)]
+# Add total years captured to working dataframe
+e4$groupby2 <- paste(e4$Specie.Code, e4$session,  e4$Location.x, sep = ".")
+e5$groupby2 <- paste(e5$Specie.Code, e5$session2, e5$Location, sep = ".")
+e6 <- left_join(e4, e5, by = "groupby2")
+# Fill in zeros for species/session/location combos that were never captured
+e6[which(is.na(e6$tot.yrs) == TRUE),"tot.yrs"] <- 0
+# Fix column names
+e6 <- e6[,c("Specie.Code.x", "year.x", "session", "Location.x", "N", "i",
+            "tot_net_hours", "caps_per_1K_nethours", "tot.yrs")]
+colnames(e6) <- c("Specie.Code", "year", "session", "Location", "N", "i",
+                  "tot_net_hours", "caps_per_1K_nethours", "tot.yrs")
+# Add centered year
+e6$year_cent <- scale(e6$year, scale = FALSE)
+e6$year_cent <- as.numeric(e6$year_cent)
+# Remove NAs 
+e7 <- e6[-which(is.na(e6$tot_net_hours) == TRUE),]
+```
+
+# Save new working dataset
+```{r, warning = FALSE, message = FALSE}
+write.csv(e7, paste0(loc,"/ecuador_5.csv"))
+```

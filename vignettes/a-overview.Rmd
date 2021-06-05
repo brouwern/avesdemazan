@@ -1,0 +1,59 @@
+---
+title: "a) Ecuador analysisn - Overview"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{a) Ecuador analysisn - Overview}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+
+Files received from Emily Morrison via email.  EM indicated  
+"You should only need
+Ecuador_Analysis_DataPrep.Rmd
+Ecuador_Analysis.Rmd
+Net_hours.csv
+Banding Sheet 2.csv
+I included my version of intermediate data prep in case things are broken you can see where things were supposed to end up."
+
+
+Scripts provided:
+
+* MAIN: Ecuador_Analysis_DataPrep.Rmd
+* MAIN: Ecuador_Analysis.Rmd
+
+Data provided:
+
+* MAIN: Net_hours.csv
+* MAIN: Banding Sheet 2.csv
+* ecuador_working.csv
+* ecuador_1.csv, ecuador_2, ecuador_3, _4, _5
+
+
+
+# Files and dataframes used
+
+Mist net data description: ecuador_working.csv
+used to make ecuador_id dataframe
+(probably included untagged individuals)
+size: 4708 x 23
+
+Point count data: ecuador_pc (all commented out)
+
+regression analysis uses "ecuador" dataframe from the ecuador_5.csv file
+size: 6860 x  11
+
+

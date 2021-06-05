@@ -1,0 +1,465 @@
+---
+title: "j) Species-specific trends"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{j) Species-specific trends}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+
+
+
+
+
+
+
+# Plots of species-specifc trends (?)
+
+```{r Predict species trend, echo = T}
+# Extract fixed effects
+slopes$int <-  rep(summary(fit_nb2_corr)[[6]]$cond[1,1], dim(slopes)[1])
+slopes$main <- rep(summary(fit_nb2_corr)[[6]]$cond[2,1], dim(slopes)[1])
+slopes$mase <- rep(summary(fit_nb2_corr)[[6]]$cond[3,1], dim(slopes)[1])
+slopes$time <- rep(summary(fit_nb2_corr)[[6]]$cond[4,1], dim(slopes)[1])
+
+predict_glmmtmb <- function(spp_code,species)
+{
+  # Set working species
+  spp.working <- spp_code
+  
+  # Subset data relevant to working species
+  subset <- ecuador[which(ecuador$Specie.Code == spp.working),]
+  df.working <- slopes[which(slopes$spp == spp.working),]
+  
+  # Create time vector
+  x <- 1:33/3
+  
+  # Calculate smoothed trend for LLAV
+  y.llav <- exp(df.working[which(df.working$loc == "SHRUB"),]$int + 
+                  df.working[which(df.working$loc == "SHRUB"),]$`(Intercept)` +  
+                  (df.working[which(df.working$loc == "SHRUB"),]$time +
+                     df.working[which(df.working$loc == "SHRUB"),]$time_cts)*x)*1000
+  
+  # Calculate smoothed trend for MAIN
+  y.main <- exp(df.working[which(df.working$loc == "MIXED"),]$int +
+                  df.working[which(df.working$loc == "MIXED"),]$main + 
+                  df.working[which(df.working$loc == "MIXED"),]$`(Intercept)` +
+                  (df.working[which(df.working$loc == "MIXED"),]$time + 
+                     df.working[which(df.working$loc == "MIXED"),]$time_cts)*x)*1000
+  
+  # Calculate smoothed trend for MASE
+  y.mase <- exp(df.working[which(df.working$loc == "NATIVE"),]$int +
+                df.working[which(df.working$loc == "NATIVE"),]$mase + 
+                df.working[which(df.working$loc == "NATIVE"),]$`(Intercept)` +
+                (df.working[which(df.working$loc == "NATIVE"),]$time + 
+                   df.working[which(df.working$loc == "NATIVE"),]$time_cts)*x)*1000
+  
+  #fit_nb2_corr$frame$`offset(log(tot_net_hours))`
+  
+  if (length(y.llav) == 0)
+  {
+    y.llav <- rep(NA,33)
+  }
+
+  if (length(y.main) == 0)
+  {
+    y.main <- rep(NA,33)
+  }
+
+  if (length(y.mase) == 0)
+  {
+    y.mase <- rep(NA,33)
+  }
+
+  # Create response matrix
+  y <- matrix(nrow = 33*3, ncol = 3)
+  y <- as.data.frame(y)
+  colnames(y) <- c("time_cts","y","Location")
+  
+  # Fill response matrix
+  y$time_cts <- rep(1:33/3,3)
+  y$y <- c(y.llav, y.main, y.mase)
+  y$Location <- c(rep("SHRUB", 33), rep("MIXED", 33), rep("NATIVE", 33))
+  y$Location <- factor(y$Location, levels = c("SHRUB", "MIXED", "NATIVE"))
+  y$Specie.Code <- factor(rep(spp.working, 33*3), levels = levels(ecuador$Specie.Code))
+  y$tot_net_hours <- rep(1000, 33*3)
+  
+  y$response <- predict(fit_nb2_corr, 
+                        newdata = y, 
+                        type = c("response"), 
+                        se.fit = TRUE, 
+                        allow.new.levels = TRUE)$fit
+  
+  y$se <- predict(fit_nb2_corr, 
+                  newdata = y, 
+                  type = c("response"), 
+                  se.fit = TRUE, 
+                  allow.new.levels = TRUE)$se.fit
+  
+  y$lower <- y$response - 2*y$se
+  y$upper <- y$response + 2*y$se
+
+  # Plot LLAV
+  LLAV <- ggplot(data = subset[which(subset$Location == "SHRUB"),], 
+                 aes(x = subset[which(subset$Location == "SHRUB"),]$time_cts,
+                     y = subset[which(subset$Location == "SHRUB"),]$caps_per_1K_nethours)) + 
+    geom_point(aes(x = subset[which(subset$Location == "SHRUB"),]$time_cts, 
+                   y = subset[which(subset$Location == "v"),]$caps_per_1K_nethours)) + 
+    geom_line(data = y[which(y$Location == "SHRUB"),], 
+              aes(x = time_cts, 
+                  y = response), 
+              col = "red") +
+    geom_ribbon(data = y[which(y$Location == "SHRUB"),], 
+                aes(x = 1:33/3, 
+                    ymin = lower, 
+                    ymax = upper), 
+                fill = "red", 
+                alpha = 0.1, 
+                inherit.aes = FALSE, 
+                show.legend = FALSE) +
+    geom_line(data = y[which(y$Location == "SHRUB"),], 
+              aes(x = time_cts, y = y), col = "blue") +
+    xlab("Year") + 
+    ylab("Captures per 1000 net hours") + 
+    ggtitle("SHRUB") + 
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  # Plot MAIN
+  MAIN <- ggplot(data = subset[which(subset$Location == "MIXED"),], 
+                 aes(x = subset[which(subset$Location == "MIXED"),]$time_cts, 
+                     y = subset[which(subset$Location == "MIXED"),]$caps_per_1K_nethours)) + 
+    geom_point(aes(x = subset[which(subset$Location == "MIXED"),]$time_cts, 
+                   y = subset[which(subset$Location == "MIXED"),]$caps_per_1K_nethours)) + 
+    geom_line(data = y[which(y$Location == "MIXED"),], aes(x = time_cts, y = response), col = "red") +
+    geom_ribbon(data = y[which(y$Location == "MIXED"),], aes(x = 1:33/3, ymin = lower, ymax = upper), fill = "red", alpha = 0.1, inherit.aes = FALSE, show.legend = FALSE) +
+    geom_line(data = y[which(y$Location == "MIXED"),], aes(x = time_cts, y = y), col = "blue") +
+    xlab("Year") + ylab("Captures per 1000 net hours") + ggtitle("MIXED") + theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5))
+    
+  # Plot MASE
+  MASE <- ggplot(data = subset[which(subset$Location == "NATIVE"),], aes(x = subset[which(subset$Location == "NATIVE"),]$time_cts, y = subset[which(subset$Location == "NATIVE"),]$caps_per_1K_nethours)) + 
+    geom_point(aes(x = subset[which(subset$Location == "NATIVE"),]$time_cts, y = subset[which(subset$Location == "NATIVE"),]$caps_per_1K_nethours)) + 
+    geom_line(data = y[which(y$Location == "NATIVE"),], aes(x = time_cts, y = response), col = "red") +
+    geom_ribbon(data = y[which(y$Location == "NATIVE"),], aes(x = 1:33/3, ymin = lower, ymax = upper), fill = "red", alpha = 0.1, inherit.aes = FALSE, show.legend = FALSE) +
+    geom_line(data = y[which(y$Location == "NATIVE"),], aes(x = time_cts, y = y), col = "blue") +
+    xlab("Year") + ylab("Captures per 1000 net hours") + ggtitle("NATIVE") + theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5)) 
+    
+  # Arrange plots
+  figure <- grid.arrange(arrangeGrob(LLAV,# + xlab(NULL),# + ylab(NULL), 
+                           MAIN + ylab(NULL),#xlab(NULL),# + ylab(NULL),  
+                           MASE + ylab(NULL),#xlab(NULL),# + ylab(NULL),
+                           nrow = 1,
+                           top = textGrob(paste(species,"\n",sep = ""), vjust = 1, gp = gpar(fontface = "bold", cex = 1.5))))#),
+                           #left = textGrob("Captures per 1000 net hours \n", rot = 90, vjust = 1),
+                           #bottom = textGrob("Time point")))
+  
+  return(figure)
+}
+```
+
+ 
+
+## Regression plots
+
+There were 3 species with significant trends in at least one habitat. The following 2 pages plot each of these species' observed and predicted capture rates. No species had significant trends in more than one habitat.
+
+The blue line is a smoothed predicted trend. The red line tries to account for session-to-session variability (e.g. good session for catching birds/bad session for catching birds). The red shaded region shows the 95\% confidence interval for this trend. The black points show the observed capture rates standardized to be in captures per 1000 net hours. When there are no points in a habitat it means the species was not captured there. In these cases, the model still tries to estimate what the trend would be if the species had been in that habitat. It uses information about how that habitat is doing on average and how that species is doing on average to develop a conservative estimate of trend; these estimates are not significant because there are no data to support them.
+
+By plotting the data and predicted model fit, we can visually assess how well the model is fitting the data. If something is amiss, we could further investigate and consider whether the model is providing reasonable estimates of trend. To my eye, it fits the data quite well.
+
+
+```{r}
+png(filename = "ERLU.png", width = 2000, height = 1250, res =300)
+erlu <- predict_glmmtmb("ERLU", "E. luciani")
+grid.draw(erlu)
+dev.off()
+```
+
+
+```{r Species predict function, echo = T, warning = FALSE, fig.height = 4.15, cache = TRUE}
+
+# png(filename = "CIPL.png", width = 2000, height = 1250, res =300)
+# cipl <- predict_glmmtmb("CIPL", "C. platensis")
+# grid.draw(cipl)
+# dev.off()
+# 
+# png(filename = "BACO.png", width = 2000, height = 1250, res =300)
+# baco <- predict_glmmtmb("BACO", "B. coronatus")
+# grid.draw(baco)
+# dev.off()
+# 
+# png(filename = "BANI.png", width = 2000, height = 1250, res =300)
+# bani <- predict_glmmtmb("BANI", "B. nigrocristatus")
+# grid.draw(bani)
+# dev.off()
+
+
+png(filename = "AGCU.png", width = 2000, height = 1250, res =300)
+agcu <- predict_glmmtmb("AGCU", "A. cupripennis")
+grid.draw(agcu)
+dev.off()
+
+png(filename = "AMHO.png", width = 2000, height = 1250, res =300)
+amho <- predict_glmmtmb("AMHO", "A. holosericeus")
+grid.draw(amho)
+dev.off()
+
+png(filename = "ANIG.png", width = 2000, height = 1250, res =300)
+anig <- predict_glmmtmb("ANIG", "A. igniventris")
+grid.draw(anig)
+dev.off()
+
+png(filename = "ANPA.png", width = 2000, height = 1250, res =300)
+anpa <- predict_glmmtmb("ANPA", "A. parulus")
+grid.draw(anpa)
+dev.off()
+
+png(filename = "ATLA.png", width = 2000, height = 1250, res =300)
+atla <- predict_glmmtmb("ATLA", "A. latinuchus")
+grid.draw(atla)
+dev.off()
+
+png(filename = "BACO.png", width = 2000, height = 1250, res =300)
+baco <- predict_glmmtmb("BACO", "B. coronatus")
+grid.draw(baco)
+dev.off()
+
+png(filename = "BANI.png", width = 2000, height = 1250, res =300)
+bani <- predict_glmmtmb("BANI", "B. nigrocristatus")
+grid.draw(bani)
+dev.off()
+
+png(filename = "BUTO.png", width = 2000, height = 1250, res =300)
+buto <- predict_glmmtmb("BUTO", "B. torquatus")
+grid.draw(buto)
+dev.off()
+
+png(filename = "CAIN.png", width = 2000, height = 1250, res =300)
+cain <- predict_glmmtmb("CAIN", "C. inornata")
+grid.draw(cain)
+dev.off()
+
+png(filename = "CIPL.png", width = 2000, height = 1250, res =300)
+cipl <- predict_glmmtmb("CIPL", "C. platensis")
+grid.draw(cipl)
+dev.off()
+
+png(filename = "COCI.png", width = 2000, height = 1250, res =300)
+coci <- predict_glmmtmb("COCI", "C. cinereum")
+grid.draw(coci)
+dev.off()
+
+png(filename = "COIR.png", width = 2000, height = 1250, res =300)
+coir <- predict_glmmtmb("COIR", "C. iris")
+grid.draw(coir)
+dev.off()
+
+png(filename = "CRAN.png", width = 2000, height = 1250, res =300)
+cran <- predict_glmmtmb("CRAN", "C. antisiensis")
+grid.draw(cran)
+dev.off()
+
+png(filename = "DICY.png", width = 2000, height = 1250, res =300)
+dicy <- predict_glmmtmb("DICY", "D. cyanea")
+grid.draw(dicy)
+dev.off()
+
+png(filename = "DIHU.png", width = 2000, height = 1250, res =300)
+dihu <- predict_glmmtmb("DIHU", "D. humeralis")
+grid.draw(dihu)
+dev.off()
+
+png(filename = "DUTA.png", width = 2000, height = 1250, res =300)
+duta <- predict_glmmtmb("DUTA", "D. taeniata")
+grid.draw(duta)
+dev.off()
+
+png(filename = "ERLU.png", width = 2000, height = 1250, res =300)
+erlu <- predict_glmmtmb("ERLU", "E. luciani")
+grid.draw(erlu)
+dev.off()
+
+png(filename = "ERVE.png", width = 2000, height = 1250, res =300)
+erve <- predict_glmmtmb("ERVE", "E. vestitus")
+grid.draw(erve)
+dev.off()
+
+png(filename = "GRRU.png", width = 2000, height = 1250, res =300)
+grru <- predict_glmmtmb("GRRU", "G. rufula")
+grid.draw(grru)
+dev.off()
+
+png(filename = "HEGU.png", width = 2000, height = 1250, res =300)
+hegu <- predict_glmmtmb("HEGU", "H. gularis")
+grid.draw(hegu)
+dev.off()
+
+png(filename = "HESU.png", width = 2000, height = 1250, res =300)
+hesu <- predict_glmmtmb("HESU", "H. superciliaris")
+grid.draw(hesu)
+dev.off()
+
+png(filename = "HEVI.png", width = 2000, height = 1250, res =300)
+hevi <- predict_glmmtmb("HEVI", "H. viola")
+grid.draw(hevi)
+dev.off()
+
+png(filename = "LALA.png", width = 2000, height = 1250, res =300)
+lala <- predict_glmmtmb("LALA", "L. lafresnayi")
+grid.draw(lala)
+dev.off()
+
+png(filename = "LEVI.png", width = 2000, height = 1250, res =300)
+levi <- predict_glmmtmb("LEVI", "L. victoriae")
+grid.draw(levi)
+dev.off()
+
+png(filename = "MASQ.png", width = 2000, height = 1250, res =300)
+masq <- predict_glmmtmb("MASQ", "M. squamiger")
+grid.draw(masq)
+dev.off()
+
+png(filename = "MEBA.png", width = 2000, height = 1250, res =300)
+meba <- predict_glmmtmb("MEBA", "M. baroni")
+grid.draw(meba)
+dev.off()
+
+png(filename = "METY.png", width = 2000, height = 1250, res =300)
+mety <- predict_glmmtmb("METY", "M. tyrianthina")
+grid.draw(mety)
+dev.off()
+
+png(filename = "MYME.png", width = 2000, height = 1250, res =300)
+myme <- predict_glmmtmb("MYME", "M. melanocephalus")
+grid.draw(myme)
+dev.off()
+
+png(filename = "OCCI.png", width = 2000, height = 1250, res =300)
+occi <- predict_glmmtmb("OCCI", "O. cinnamomeiventris")
+grid.draw(occi)
+dev.off()
+
+png(filename = "OCFR.png", width = 2000, height = 1250, res =300)
+ocfr <- predict_glmmtmb("OCFR", "O. frontalis")
+grid.draw(ocfr)
+dev.off()
+
+png(filename = "PTCY.png", width = 2000, height = 1250, res =300)
+ptcy <- predict_glmmtmb("PTCY", "P. cyanopterus")
+grid.draw(ptcy)
+dev.off()
+
+png(filename = "SCLA.png", width = 2000, height = 1250, res =300)
+scla <- predict_glmmtmb("SCLA", "S. latrans")
+grid.draw(scla)
+dev.off()
+
+png(filename = "SYAZ.png", width = 2000, height = 1250, res =300)
+syaz <- predict_glmmtmb("SYAZ", "S. azarae")
+grid.draw(syaz)
+dev.off()
+
+png(filename = "TAVA.png", width = 2000, height = 1250, res =300)
+tava <- predict_glmmtmb("TAVA", "T. vassorii")
+grid.draw(tava)
+dev.off()
+
+png(filename = "THFL.png", width = 2000, height = 1250, res =300)
+thfl <- predict_glmmtmb("THFL", "T. flammulatus")
+grid.draw(thfl)
+dev.off()
+
+png(filename = "THOR.png", width = 2000, height = 1250, res =300)
+thor <- predict_glmmtmb("THOR", "T. ornata")
+grid.draw(thor)
+dev.off()
+
+png(filename = "TRSO.png", width = 2000, height = 1250, res =300)
+trso <- predict_glmmtmb("TRSO", "T. solstitialis")
+grid.draw(trso)
+dev.off()
+
+png(filename = "ZOCA.png", width = 2000, height = 1250, res =300)
+zoca <- predict_glmmtmb("ZOCA", "Z. capensis")
+grid.draw(zoca)
+dev.off()
+
+ecuador %>%
+  dplyr::select(Specie.Code, Species) %>%
+  unique()
+```
+
+
+
+```{r}
+png(filename = "Aggregate_Pop_Trends2.png", width = 2000, height = 1250, res =350)
+ecuador %>%
+  group_by(session, Location, year, time_cts, tot_net_hours) %>%
+  summarize(Tot_caps = sum(N)) %>%
+  mutate(Caps_per_1k_nh = Tot_caps/tot_net_hours * 1000) %>%
+  ggplot(aes(x = time_cts, y = Caps_per_1k_nh)) +
+  geom_line() +
+  facet_grid(.~Location) +
+  geom_smooth(method = "lm") +
+  theme_bw() +
+  scale_x_continuous(breaks = c(0:10 + 0.66), labels = 2006:2016) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab("Year") + ylab("Captures per 1K net hours")
+dev.off()
+
+png(filename = "Diet_Pop_Trends.png", width = 2000, height = 2000, res = 400)
+ecuador %>%
+  # filter(Diet == "I") %>%
+  group_by(session, Diet, Location, year, time_cts, tot_net_hours) %>%
+  summarize(Tot_caps = sum(N)) %>%
+  mutate(Caps_per_1k_nh = Tot_caps/tot_net_hours * 1000) %>%
+  ggplot(aes(x = time_cts, y = Caps_per_1k_nh)) +
+  geom_line() +
+  facet_grid(Diet~Location, scales = "free") +
+  geom_smooth(method = "lm") +
+  theme_bw() +
+  scale_x_continuous(breaks = c(0:10 + 0.66), labels = 2006:2016) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab("Year") + ylab("Captures per 1K net hours")
+dev.off()
+
+insectivores <- ecuador %>% filter(Diet == "I") %>% dplyr::select(Specie.Code) %>% unique()
+
+png(filename = "Diet_Pop_Trends_by_spp16-19.png", width = 6000, height = 6000, res = 800)
+ecuador %>%
+  filter(Diet == "I", Specie.Code %in% insectivores$Specie.Code[16:19]) %>%
+  group_by(session, Specie.Code, Location, year, time_cts, tot_net_hours) %>%
+  summarize(Tot_caps = sum(N)) %>%
+  mutate(Caps_per_1k_nh = Tot_caps/tot_net_hours * 1000) %>%
+  ungroup() %>%
+  group_by(Specie.Code) %>%
+  mutate(Label = paste0(Specie.Code, " (N = ", sum(Tot_caps), ")")) %>%
+  ggplot(aes(x = time_cts, y = Caps_per_1k_nh)) +
+  geom_line() +
+  facet_grid(Label~Location, scales = "free") +
+  geom_smooth(method = "lm") +
+  theme_bw() +
+  scale_x_continuous(breaks = c(0:10 + 0.66), labels = 2006:2016) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab("Year") + ylab("Captures per 1K net hours")
+dev.off()
+
+```
+
+

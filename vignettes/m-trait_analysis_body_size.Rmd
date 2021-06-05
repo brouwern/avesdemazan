@@ -1,0 +1,145 @@
+---
+title: "m) Trait analysis - body size"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{m) Trait analysis - body size}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+
+```{r body size fit, echo = T}
+BodySize_table <- ecuador_id %>%
+  group_by(Band.Number, Body_Size) %>%
+  summarize(BodySize_group = length(Body_Size)) %>%
+  group_by(Body_Size) %>%
+  summarize(N = length(Body_Size))
+
+kable(BodySize_table, caption = "Number of individuals by body size")
+
+ecuador$bodysize_group <- ifelse(ecuador$Body_Size == 1, "BodySize1",
+                                 ifelse(ecuador$Body_Size == 2, "BodySize2",
+                                        "BodySize3+"))
+
+fit_nb2_corr_bodysize <- glmmTMB(N ~ 1 +                                               # Null
+                                  bodysize_group +
+                                  #bodysize_group*time_cts +
+                                  Location +                                          # Location
+                                  time_cts +                                          # Continuous time variable
+                                  (1|Specie.Code:Location) +                          # Species-level intercept
+                                  (time_cts + 0|Specie.Code:Location) +
+                                  ar1(as.ordered(time_cts) + 0|Specie.Code) +         # Autocorrelation across time
+                                  offset(log(tot_net_hours)),
+                                family = nbinom2,
+                                data = ecuador)
+
+BodySize_tab_fit <- summary(fit_nb2_corr_bodysize)$coefficients$cond
+rownames(BodySize_tab_fit) <- c("Intercept", "Body Size 2", "Body Size 3+", "Location (MAIN)", "Location (MASE)", "Time")
+
+#kable(BodySize_tab_fit, caption = "Body size model fit on original scale")
+
+# Transformation
+vcov <- matrix(unlist(vcov(fit_nb2_corr_bodysize)), nrow = 6)
+
+# LLAV
+BodySize_tab_fit2 <- data.frame(Estimate_Llav = c(BodySize_tab_fit[1,1],
+                                                  BodySize_tab_fit[1,1] + BodySize_tab_fit[2,1],
+                                                  BodySize_tab_fit[1,1] + BodySize_tab_fit[3,1]))
+
+BodySize_tab_fit2$SE_Llav <- c(round(sqrt(vcov[1,1]), 3),
+                           round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2]), 3),
+                           round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3]), 3))
+
+BodySize_tab_fit2$LB_Llav <- round(exp(BodySize_tab_fit2$Estimate_Llav - 1.96*BodySize_tab_fit2$SE_Llav), 5)*1000
+BodySize_tab_fit2$Est_Llav <- round(exp(BodySize_tab_fit2$Estimate_Llav), 5)*1000
+BodySize_tab_fit2$UB_Llav <- round(exp(BodySize_tab_fit2$Estimate_Llav + 1.96*BodySize_tab_fit2$SE_Llav), 5)*1000
+
+BodySize_tab_fit2$CI_Llav <- paste0("(", BodySize_tab_fit2$LB_Llav, ", ", BodySize_tab_fit2$Est_Llav, ", ", BodySize_tab_fit2$UB_Llav, ")")
+
+# MAIN
+BodySize_tab_fit2$Estimate_Main <- c(BodySize_tab_fit[1,1] + BodySize_tab_fit[4,1],
+                                 BodySize_tab_fit[1,1] + BodySize_tab_fit[2,1] + BodySize_tab_fit[4,1],
+                                 BodySize_tab_fit[1,1] + BodySize_tab_fit[3,1] + BodySize_tab_fit[4,1])
+
+BodySize_tab_fit2$SE_Main <- c(round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4]), 3),
+                           round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[4,4] + 2*vcov[1,4] + 2*vcov[2,4]), 3),
+                           round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[4,4] + 2*vcov[1,4] + 2*vcov[3,4]), 3))
+
+BodySize_tab_fit2$LB_Main <- round(exp(BodySize_tab_fit2$Estimate_Main - 1.96*BodySize_tab_fit2$SE_Main), 5)*1000
+BodySize_tab_fit2$Est_Main <- round(exp(BodySize_tab_fit2$Estimate_Main), 5)*1000
+BodySize_tab_fit2$UB_Main <- round(exp(BodySize_tab_fit2$Estimate_Main + 1.96*BodySize_tab_fit2$SE_Main), 5)*1000
+
+BodySize_tab_fit2$CI_Main <- paste0("(", BodySize_tab_fit2$LB_Main, ", ", BodySize_tab_fit2$Est_Main, ", ", BodySize_tab_fit2$UB_Main, ")")
+
+# MASE
+BodySize_tab_fit2$Estimate_Mase <- c(BodySize_tab_fit[1,1] + BodySize_tab_fit[5,1],
+                                 BodySize_tab_fit[1,1] + BodySize_tab_fit[2,1] + BodySize_tab_fit[5,1],
+                                 BodySize_tab_fit[1,1] + BodySize_tab_fit[3,1] + BodySize_tab_fit[5,1])
+
+BodySize_tab_fit2$SE_Mase <- c(round(sqrt(vcov[1,1] + vcov[5,5] + 2*vcov[1,5]), 3),
+                           round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[2,5]), 3),
+                           round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[3,5]), 3))
+
+BodySize_tab_fit2$LB_Mase <- round(exp(BodySize_tab_fit2$Estimate_Mase - 1.96*BodySize_tab_fit2$SE_Mase), 5)*1000
+BodySize_tab_fit2$Est_Mase <- round(exp(BodySize_tab_fit2$Estimate_Mase), 5)*1000
+BodySize_tab_fit2$UB_Mase <- round(exp(BodySize_tab_fit2$Estimate_Mase + 1.96*BodySize_tab_fit2$SE_Mase), 5)*1000
+
+BodySize_tab_fit2$CI_Mase <- paste0("(", BodySize_tab_fit2$LB_Mase, ", ", BodySize_tab_fit2$Est_Mase, ", ", BodySize_tab_fit2$UB_Mase, ")")
+
+BodySize_tab_fit2$BodySize <- c("1", "2", "3+")
+
+plot_bodysize <- data.frame(Estimate = c(BodySize_tab_fit2$Est_Llav, BodySize_tab_fit2$Est_Main, BodySize_tab_fit2$Est_Mase),
+                        LB = c(BodySize_tab_fit2$LB_Llav, BodySize_tab_fit2$LB_Main, BodySize_tab_fit2$LB_Mase),
+                        UB = c(BodySize_tab_fit2$UB_Llav, BodySize_tab_fit2$UB_Main, BodySize_tab_fit2$UB_Mase),                         BodySize = rep(BodySize_tab_fit2$BodySize, 3),
+                        Habitat = c(rep("Secondary Forest (LLAV)", 3), 
+                                    rep("Introduced Forest (MAIN)", 3),
+                                    rep("Primary Forest (MASE)", 3)),
+                        Y1 = c(3.15, 3, 2.85,
+                              2.15, 2, 1.85,
+                              1.15, 1, 0.85),
+                        Y2 = c(0.85, 1.85, 2.85,
+                               1.15, 2.15, 3.15,
+                               1, 2, 3))
+
+plot_bodysize2 <- plot_bodysize[,c(5,4,1,2,3)]
+colnames(plot_bodysize2)[4:5] <- c("Lower 95% Estimate", "Upper 95% Estimate")
+kable(plot_bodysize2, caption = "Body size model baseline capture rates per 1000 net hours")
+```
+
+We find that body size 2 has significantly lower baseline capture rates relative to body size 1. Body size 3 has significantly lower baseline capture rates relative to body size 1. There is no statistically significant difference in how the capture rates change with time for the three body size groups (i.e. all are decreasing by 2.8\% (95\% CI: 0.9-4.7\%) per year from their respective baseline capture rate). There are no statistically significant differences between the habitat types (LLAV, MAIN, MASE) in terms of baseline capture rates.
+
+
+
+```{r, echo = T, fig.height= 4}
+ggplot(aes(x = Estimate, y = Y1, color = BodySize), data = plot_bodysize) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y1, yend = Y1), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("Primary Forest (MASE)", "Introduced Forest (MAIN)", "Secondary Forest (LLAV)")) +
+  ylab("Habitat\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by body size")
+
+ggplot(aes(x = Estimate, y = Y2, color = Habitat), data = plot_bodysize) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y2, yend = Y2), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("1", "2", "3+")) +
+  ylab("Body size\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by body size")
+```
+

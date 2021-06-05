@@ -1,0 +1,201 @@
+---
+title: "c) Summary Stats and dataset background"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{c) Summary Stats and dataset background}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+```{r}
+# Data cleaning
+library(dplyr)      
+library(tidyr)   
+library(reshape2)
+library(stringi)  
+
+library(knitr)
+```
+
+## Overview
+
+* Raw data was processed and save as .csv files by Emily Scott.
+* .csv files were saved as .RData by NLB.  See the data-raw folder of this repository
+
+The 3 files that are loaded in:
+
+1. ecuador_5.  Primary analysis data.  Contains net hours, total captures by species, net hours, captures per 1000 net hours, etc.
+1. ecuador_working.  Cleaned individaul-level data which allows determination of e.g. total number of captures including banded. birds, etc.
+1. Ecuador_Species_List: List of species and their traits.  Saved as "spp_trt"
+
+### Main data files
+
+```{r}
+# Load data
+## ?
+data("ecuador_5") # dim: 6860 x  11
+
+
+## ?
+data("ecuador_working")# dim: 4708 x  23
+
+## ?
+# ecuador_pc <- read.csv("ecuador_pc.csv")      # ?
+
+## Species list
+data("Ecuador_Species_List")
+spp_trt <- Ecuador_Species_List
+```
+
+
+
+
+### Note: net hours are in ecuador_5 
+
+Net hours are in the ecuador_5 dataframe 
+```{r}
+names(ecuador_5)[grep("net",names(ecuador_5))]
+names(ecuador_5)[grep("Loc",names(ecuador_5))]
+
+```
+
+
+
+
+## Dataset background
+
+**Location:** There were two locations and two sampling sites within each location for a total of four sites. LLAV and SANA were in Llaviucu and MASE and MAIN were in Mazan. There are data from SANA for only 5 out of the 11 years; data from this site were excluded from analysis. The remaining three sites have data from 2006-2016. There are 11 observations from LLAV in March, 2017 (relative to hundreds of observations from other years); these 11 observations were excluded from analysis. 
+
+```{r, echo = F}
+habitats <- data.frame(Site = c("LLAV","MASE","MAIN"), 
+                       `Habitat Type` = c("Secondary forest", "Primary forest", "Introduced forest"))
+
+colnames(habitats)[2] <- "Habitat Type"
+
+kable(habitats, 
+      caption = "Habitat type for 3 locations in working dataset")
+```
+
+**Session** Sampling occurred in three sessions of approximately 6 days each. The metadata associated with the original dataset state that each sampling session was two days; however, the dates associated with bandings and recaptures consistently occur over approximately 6 days (range: 5-8). The 6 days are not necessarily consecutive. The exact timing of the first, second, and third sessions varied by year but occurred in the following windows: the first session was between March 21 and May 6, the second session was between July 19 and September 9, and the third session was between October 30 and December 20. In two cases (segunda 13, primera 16), sampling occurred at a time different enough from other years that data were excluded from analysis to maintain the validity of grouping variables in the regression models. Most of the tercera 13 observations were temporally consistent with the other years; 70 observations from tercera 13 occurred much later and were excluded from analysis. The working dataset is visualized below. Data from within the three black boxes were included in the analysis. ** 
+
+```{r, echo = T, out.width = "100%", out.align='center'}
+# knitr::include_graphics("Picture1.png")
+```
+
+
+
+## Summary statistics
+
+### Mist net data
+
+The ecuador_working .csv is not fully formatted and used is only for basic data number of captures etc, including the un-tagged birds, etc 
+
+```{r Summary statistics, echo = T}
+ecuador_id <- ecuador_working
+n_ids <- length(unique(ecuador_working$Band.Number))
+
+n_unb <- length(which(ecuador_id$Band.Size == "UNB"))
+
+n_cap <- length(ecuador_id$X)
+
+n_spp <- length(unique(ecuador_id$Specie.Code))
+```
+There are `r n_spp` unique species. There are `r n_ids` unique, banded birds; this value was calculated by finding the number of unique band numbers. There are `r n_unb` unbanded birds. There are `r n_cap` total captures.
+
+```{r Summary by year: mist net, echo = T}
+yearsite <- ecuador_id %>% 
+  group_by(.dots = c("Band.Number","Specie.Code", "year", "Location")) %>% 
+  summarise(N = n()) %>%
+  group_by(.dots = c("Specie.Code", "year", "Location")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("year", "Location")) %>%
+  summarise(N = n()) %>% spread(Location, N)
+
+colnames(yearsite) <- c("Year", "Secondary Forest", "Primary Forest", "Introduced Forest")
+
+kable(yearsite, caption = "Total unique species by year and location")
+
+site <- ecuador_id %>%
+  group_by(.dots = c("Band.Number", "Specie.Code", "Location")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("Specie.Code", "Location")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("Location")) %>%
+  summarise(N = n())
+
+kable(site, caption = "Total unique species by location")
+
+year <- ecuador_id %>%
+  group_by(.dots = c("Band.Number", "Specie.Code", "year")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("Specie.Code", "year")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("year")) %>%
+  summarise(N = n()) 
+
+colnames(year)[1] <- "Year"
+
+kable(year, caption = "Total unique species by year")
+```
+
+```{r Annual totals (excluding recaptures), echo = T}
+# Reshape data
+cast.by.id <- dcast(data = ecuador_id,
+                    formula = year + Location + Session ~ Band.Number,
+                    value.var = "Band.Number",
+                    fun.aggregate = length)
+
+# Convert to long format
+cast.by.id.long <- cast.by.id %>% gather("Band.Number", "n", 4:3603)
+cast.by.id.long$pres.abs <- ifelse(cast.by.id.long$n > 0, 1, 0)
+
+# NOTE: this dataframe won't contain data from birds that were not banded (because they do not have a band number)
+# The total number of unbanded individuals per year per site will have to be added subsequently
+
+# Change all positive captures to equal 1
+# Want to get accurate count of number of inidividuals, excluding recaptures
+# If entries > 1 were not modified, we would get an inflated estimate of abundance (1 individual getting counted multiple times)
+# This function changes data to presence/absence (1 = presence, 0 = absence)
+fx01 <- function(x)
+{
+  ifelse(x > 0, 1, 0)
+}
+
+# Apply function to all count data
+cast.by.id[,-c(1:3)] <- apply(cast.by.id[,-c(1:3)], 2, fx01)
+
+# Sum across rows to calculate total number of individuals captured in each location
+id.tot <- apply(cast.by.id[,-c(1:3)], 1, sum)
+
+# Create table to store year, location, session, and total number of unique individuals
+ann.tot.id <- cast.by.id[,c("year","Location","Session")]
+ann.tot.id$id.tot <- id.tot
+ann.tot.id$Session <- gsub("[ ][01][01-9]","",ann.tot.id$Session)
+```
+
+
+Plot Raw counts of total
+
+```{r}
+ggplot(data = ann.tot.id,
+       aes(y = id.tot, 
+           x = year, 
+       color = Session)) +
+  geom_point() +
+  geom_line() +
+  facet_grid(Location~Session)
+```
+
