@@ -1,0 +1,308 @@
+---
+title: "Untitled"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#install.packages("DHARMa")
+library(DHARMa)
+```
+
+
+
+
+https://stats.stackexchange.com/questions/417680/dealing-with-overdispersed-negative-binomial-using-glmmtmb
+
+```{r}
+dispfun <- function(m) {
+        r <- residuals(m,type="pearson")
+        n <- df.residual(m)
+        dsq <- sum(r^2)
+        c(dsq=dsq,n=n,disp=dsq/n)
+}
+
+dispfun(fit_nb2_corr_8plus)
+```
+
+
+https://bbolker.github.io/mixedmodels-misc/glmmFAQ.html#testing-for-overdispersioncomputing-overdispersion-factor
+
+```{r}
+overdisp_fun <- function(model) {
+    rdf <- df.residual(model)
+    rp <- residuals(model,type="pearson")
+    Pearson.chisq <- sum(rp^2)
+    prat <- Pearson.chisq/rdf
+    pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+    c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+```
+
+
+```{r}
+form_glmm_ar1_ES <- formula(N ~ 1 +                                    # Null
+                           Location +                               # Location
+                           time_cts +                             # Continuous time variable
+                           (1|Specie.Code:Location) +             # Species-level intercept
+                           (time_cts +           
+                                0|Specie.Code:Location) +
+                           
+                           ar1(as.ordered(time_cts) +  # Autocorrelation across 
+                                 0|Specie.Code) +
+                           offset(log(tot_net_hours)) ) 
+```
+
+```{r}
+fit_nb2_corr_all_ES <- glmmTMB(form_glmm_ar1_ES,
+                        family = nbinom2,
+                        data = ecuador[, ])
+```
+
+```{r}
+# no warnings
+# overdisp parameter: 4.84 
+# "disp" 0.7696327
+summary(fit_nb2_corr_all_ES)
+dispfun(fit_nb2_corr_all_ES)
+diagnose_hessian(fit_nb2_corr_all_ES)
+#diagnose_vcov(fit_nb2_corr_all_ES)
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+form_glmm_ar1 <- formula(N ~ 1 +                                    # Null
+                           Location +                               # Location
+                           time_cts +                             # Continuous time variable
+                           (1|Specie.Code:Location) +             # Species-level intercept
+                           (1|year:session) +
+                           (1|year:session:Location) +
+                           (time_cts +           
+                                0|Specie.Code:Location) +
+                           
+                           ar1(as.ordered(time_cts) +  # Autocorrelation across 
+                                 0|Specie.Code:Location) +
+                           offset(log(tot_net_hours)) ) 
+```
+
+
+```{r}
+summary(ecuador$tot.yrs)
+table(ecuador$tot.yrs )
+
+i5 <- which(ecuador$tot.yrs > 4)
+i6 <- which(ecuador$tot.yrs > 5)
+i7 <- which(ecuador$tot.yrs > 6)
+i8 <- which(ecuador$tot.yrs > 7)
+```
+
+
+
+## Negbin2
+
+```{r}
+
+
+# 1 warnings
+## Model convergence problem; non-positive-definite Hessian matrix.
+## Overdispersion: 1.5e+06 
+fit_nb2_corr_all <- glmmTMB(form_glmm_ar1,
+                        family = nbinom2,
+                        data = ecuador[, ])
+
+diagnose_hessian(fit_nb2_corr_all) # betad
+#diagnose_vcov(fit_nb2_corr_all_ES)
+
+# 2 warnings
+## Model convergence problem; non-positive-definite Hessian matrix.
+## Model convergence problem; false convergence (8)
+## overdipserion: 3.78e+06
+fit_nb2_corr_5plus <- glmmTMB(form_glmm_ar1,
+                        family = nbinom2,
+                        data = ecuador[i5, ])
+
+# 2 warnings
+## as above
+# overdispersion: 6.78e+06 
+fit_nb2_corr_6plus <- glmmTMB(form_glmm_ar1,
+                        family = nbinom2,
+                        data = ecuador[i6, ])
+# 2 warnings
+# 1.65e+06 
+fit_nb2_corr_7plus <- glmmTMB(form_glmm_ar1,
+                        family = nbinom2,
+                        data = ecuador[i7, ])
+
+# No warnings
+# disp parameter 4.7e+06
+# "disp" 0.4432844 
+fit_nb2_corr_8plus <- glmmTMB(form_glmm_ar1,
+                        family = nbinom2,
+                        data = ecuador[i8, ])
+dispfun(fit_nb2_corr_8plus) # 0.4432844 
+diagnose_hessian(fit_nb2_corr_8plus) # betad
+```
+
+
+
+
+
+## Negbin1
+
+```{r}
+
+
+# 1 warning
+## Model convergence problem; non-positive-definite Hessian matrix.
+## Overdispersion: 2.28e-11 
+fit_nb1_corr_all <- glmmTMB(form_glmm_ar1,
+                        family = nbinom1,
+                        data = ecuador[, ])
+
+#diagnose_hessian(fit_nb1_corr_all) # betad
+#diagnose_vcov(fit_nb2_corr_all_ES)
+
+
+```
+
+
+
+## poisson 
+
+
+
+```{r}
+form_glmm_ar1 <- formula(N ~ 1 +                                    # Null
+                           Location +                               # Location
+                           time_cts +                             # Continuous time variable
+                           (1|Specie.Code) +
+                           (1|Specie.Code:Location) +             # Species-level intercept
+                           (1|year:session) +
+                           (1|year:session:Location) +
+                           (time_cts +           
+                                0|Specie.Code:Location) +
+                           
+                           ar1(as.ordered(time_cts) +  # Autocorrelation across 
+                                 0|Specie.Code:Location) +
+                           offset(log(tot_net_hours)) ) 
+```
+
+```{r}
+ranef(fit_pos_corr_all)
+```
+
+
+
+```{r}
+
+
+# 0 warnings
+fit_pos_corr_all <- glmmTMB(form_glmm_ar1,
+                        family = poisson,
+                        data = ecuador[, ])
+
+diagnose_hessian(fit_pos_corr_all)
+dispfun(fit_pos_corr_all) # 0.4964196
+overdisp_fun(fit_pos_corr_all) #0.4964196
+
+# dispersion = 1.7967, p-value = 0.072
+DHARMa::testDispersion(fit_pos_corr_all)
+
+# dispersion = 0.49642
+DHARMa::testDispersion(fit_pos_corr_all, type = "PearsonChisq")
+
+```
+
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = fit_pos_corr_all, 
+                                      refit = F,
+                                      plot = F)
+
+
+plot(simulationOutput)
+
+ecuador$resids <- resid(simulationOutput)
+```
+
+plotQQunif (left panel) creates a qq-plot to detect overall deviations from the expected distribution, by default with added tests for correct distribution (KS test), dispersion and outliers. Note that outliers in DHARMa are values that are by default defined as values outside the simulation envelope, not in terms of a particular quantile. Thus, which values will appear as outliers will depend on the number of simulations. If you want outliers in terms of a particuar quantile, you can use the outliers() function.
+
+plotResiduals (right panel) produces a plot of the residuals against the predicted value (or alternatively, other variable). Simulation outliers (data points that are outside the range of simulated values) are highlighted as red stars. These points should be carefully interpreted, because we actually don’t know “how much” these values deviate from the model expectation. Note also that the probability of an outlier depends on the number of simulations, so whether the existence of outliers is a reason for concern depends also on the number of simulations.
+
+```{r}
+DHARMa::testDispersion(simulationOutput)
+DHARMa::testUniformity(simulationOutput)
+DHARMa::testZeroInflation(simulationOutput)
+
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(data = ecuador,
+        aes(y = resids,
+            x = time_cts)) +
+  geom_point() +
+  facet_wrap(vars(Location))
+```
+
+
+```{r}
+ggplot(data = ecuador,
+        aes(y = resids,
+            x = time_cts)) +
+  geom_point() +
+  facet_wrap(vars(session))
+```
+
+
+
+```{r}
+ggplot(data = ecuador,
+        aes(y = resids,
+            x = time_cts,
+            color = Location)) +
+  geom_point() +
+  facet_wrap(vars(Species)) +
+  geom_smooth(method = "lm", se = T)
+```
+
+
+
+## poisson normal
+
+not better
+
+```{r}
+form_glmm_ar1_poisnorm <- update(form_glmm_ar1_ES, . ~ . + (1|i))
+```
+
+
+```{r}
+fit_pos_corr_poisnorm <- glmmTMB(form_glmm_ar1_poisnorm,
+                        family = poisson,
+                        data = ecuador[, ])
+
+dispfun(fit_pos_corr_poisnorm) # 0.5197247
+
+# dispersion = 1.7967, p-value = 0.072
+DHARMa::testDispersion(fit_pos_corr_poisnorm)
+
+DHARMa::testUniformity(fit_pos_corr_all)
+
+```
+

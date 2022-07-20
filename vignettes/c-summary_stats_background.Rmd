@@ -32,14 +32,14 @@ library(knitr)
 
 ## Overview
 
-* Raw data was processed and save as .csv files by Emily Scott.
-* .csv files were saved as .RData by NLB.  See the data-raw folder of this repository
+* Raw data was processed and saved as .csv files by Emily Scott (ES).
+* .csv files were saved as .RData by NLB.  See the `data-raw` folder of this repository
 
 The 3 files that are loaded in:
 
-1. ecuador_5.  Primary analysis data.  Contains net hours, total captures by species, net hours, captures per 1000 net hours, etc.
-1. ecuador_working.  Cleaned individaul-level data which allows determination of e.g. total number of captures including banded. birds, etc.
-1. Ecuador_Species_List: List of species and their traits.  Saved as "spp_trt"
+1. `ecuador_5`.  Primary analysis data.  Contains net hours, total captures by species, net hours, captures per 1000 net hours, etc.
+1. `ecuador_working`.  Cleaned individual-level data which allows determination of e.g. total number of captures including banded. birds, etc.
+1. `Ecuador_Species_List`: List of species and their traits.  Saved as `spp_trt`
 
 ### Main data files
 
@@ -77,7 +77,14 @@ names(ecuador_5)[grep("Loc",names(ecuador_5))]
 
 ## Dataset background
 
-**Location:** There were two locations and two sampling sites within each location for a total of four sites. LLAV and SANA were in Llaviucu and MASE and MAIN were in Mazan. There are data from SANA for only 5 out of the 11 years; data from this site were excluded from analysis. The remaining three sites have data from 2006-2016. There are 11 observations from LLAV in March, 2017 (relative to hundreds of observations from other years); these 11 observations were excluded from analysis. 
+**Location:** There were two "locations" and two sampling sites within each location for a total of four sites. 
+
+* LLAV and SANA were in Llaviucu and 
+* MASE and MAIN were in Mazan. T
+
+here are data from SANA for only 5 out of the 11 years; data from this site were excluded from analysis. The remaining three sites have data from 2006-2016. 
+
+There are 11 observations from LLAV in March, 2017 (relative to hundreds of observations from other years); these 11 observations were excluded from analysis. 
 
 ```{r, echo = F}
 habitats <- data.frame(Site = c("LLAV","MASE","MAIN"), 
@@ -190,7 +197,7 @@ ann.tot.id$Session <- gsub("[ ][01][01-9]","",ann.tot.id$Session)
 Plot Raw counts of total
 
 ```{r}
-ggplot(data = ann.tot.id,
+ggplot2::ggplot(data = ann.tot.id,
        aes(y = id.tot, 
            x = year, 
        color = Session)) +

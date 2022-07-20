@@ -1,0 +1,314 @@
+---
+title: "Untitled"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+"Thu Aug 12 10:51:50 2021"
+ 
+This script was started after stalling out on building a model of all species
+
+```{r}
+# Data and functions
+library(avesdemazan)
+
+# Model fitting
+library(lme4)       # glmer() for glmm
+library(glmmTMB)    # glmm with AR-1  
+# library(blme)       # bglmer (used?)
+
+# Model evaluation
+# library(afex)       # functionall_fit()
+# library(multcomp)   
+# library(emmeans)
+library(bbmle)
+
+data("ecuador")
+```
+
+```{r}
+with(ecuador[spp.i,],table(Location,Specie.Code))
+```
+
+```{r}
+library("nlme")
+
+spp.i <- grep("LEVI",ecuador$Specie.Code)
+spp.i <- grep("LALA",ecuador$Specie.Code)
+
+
+
+
+```
+
+
+## tscount
+
+```{r}
+install.packages("tscount")
+```
+
+
+```{r}
+time_cts <- unique(ecuador$time_cts)[order(unique(ecuador$time_cts))]
+time_cts_df <- data.frame(time_cts,
+                          t = 1:length(time_cts))
+ length(time_cts)
+```
+
+
+```{r}
+
+
+
+
+spp <- as.character(unique(ecuador$Specie.Code))
+locs <- c("SHRUB","MIXED","NATIVE")
+
+df <- expand.grid(spp = spp, 
+            locs = locs,
+            N.obs.ij = NA,
+            
+            # glm
+            
+            # time series
+            pois.B = NA, pois.se = NA, pois.lwr = NA, pois.up = NA,
+            nbin.B = NA, nbin.se = NA, nbin.lwr = NA, nbin.up = NA,
+            sig.dec.pois = NA, sig.dec.nbin = NA,
+            AIC.pois = NA, AIC.nbin = NA,
+            dAIC = NA,
+            stringsAsFactors = F)
+
+ecuador$Specie.Code  <- as.character(ecuador$Specie.Code )
+ecuador$Location  <- as.character(ecuador$Location )
+
+for(i in 1:dim(df)[1]){
+  
+
+    spp.i <- df$spp[i]
+    loc.j <- df$locs[i]
+    
+    spp.i.loc.j <- which(ecuador$Specie.Code == spp.i & 
+                           ecuador$Location == loc.j)
+    
+    N.obs.ij <- length(spp.i.loc.j)
+    
+    # metadata
+    df[i, 1:3] <- c(spp.i,loc.j,N.obs.ij)
+    
+ 
+    
+    
+    
+    dat <- ecuador[spp.i.loc.j, c("N","Specie.Code","Location","time_cts")]
+    dat <- dat[order.t,]
+    
+    dat <- merge(dat, time_cts_df, by = "time_cts")
+    
+    # plot(N ~ time_cts,
+    #      data = dat,
+    #      type = "b")
+    # 
+    # ## glm
+    # glm.ij <- glm(N ~ time_cts,
+    #      family = "poisson",
+    #     data = dat)
+    # 
+    ## time series
+    #order.t <- order(ecuador[spp.i.loc.j,"time_cts"])
+    
+    if(N.obs.ij > 0){
+      
+      models.ij.pois <- tsglm(dat$N,
+                model = list(past_obs = 1),
+                xreg=dat$t,
+                  distr = "poisson",
+                link = "log")
+      models.ij.nbin <- tsglm(dat$N,
+                model = list(past_obs = 1),
+                xreg=dat$t,
+                  distr = "nbinom",
+                link = "log")
+      
+      # linear trend slope is "eta_1", not beta
+      beta.pois <- summary(models.ij.pois)$coefficients["eta_1",]
+      beta.nbin <- summary(models.ij.nbin)$coefficients["eta_1",]
+      
+      pois.dec <- ifelse(beta.pois$`CI(lower)` < 1 & beta.pois$`CI(upper)` < 0, "*","")
+      nbin.dec <- ifelse(beta.nbin$`CI(lower)` < 1 & beta.nbin$`CI(upper)` < 0, "*","")
+      
+      AIC.pois <- AIC(models.ij.pois)
+      AIC.nbin <- AIC(models.ij.nbin)
+      
+    
+    df[i, c("pois.B","pois.se","pois.lwr","pois.up")] <- beta.pois
+    df[i, c("nbin.B","nbin.se","nbin.lwr","nbin.up")] <- beta.nbin
+    df[i, c("sig.dec.pois","sig.dec.nbin")] <- c(pois.dec,nbin.dec)
+    df[i, c("AIC.pois","AIC.nbin")] <- round(c(AIC.pois,AIC.nbin),2)
+    df[i, "dAIC"] <- ifelse(c(AIC.nbin-AIC.pois) > 1.99, "*","" )
+    
+    }
+    
+
+    
+    
+}
+
+
+
+
+```
+
+```{r}
+df$spp <- factor(df$spp)
+df$locs <- factor(df$locs)
+df$sig.dec.pois <- factor(df$sig.dec.pois )
+df$sig.dec.nbin <- factor(df$sig.dec.nbin )
+df$N.obs.ij <- as.numeric(df$N.obs.ij)
+
+df <- na.omit(df[,c("spp","locs", "N.obs.ij" ,"sig.dec.pois", "sig.dec.nbin" )])
+
+summary(df)
+
+with(df, table(sig.dec.pois,sig.dec.nbin))
+```
+
+
+```{r}
+# beta_1          0.937      0.165     0.6135       1.26
+spp.i.loc.j.a <- which(ecuador$Specie.Code == "LEVI" & ecuador$Location == "SHRUB")
+spp.i.loc.j <- which(ecuador$Specie.Code == "LEVI" & ecuador$Location == "MIXED")
+spp.i.loc.j <- which(ecuador$Specie.Code == "LEVI" & ecuador$Location == "NATIVE")
+
+# beta_1         0.0614      0.105     -0.145      0.268
+spp.i.loc.j.b <- which(ecuador$Specie.Code == "LALA" & ecuador$Location == "SHRUB")
+
+# beta_1       3.88e-10      0.152     -0.298      0.298
+spp.i.loc.j.c <- which(ecuador$Specie.Code == "LALA" & ecuador$Location == "MIXED")
+spp.i.loc.j.d <- which(ecuador$Specie.Code == "LALA" & ecuador$Location == "NATIVE")
+
+ecuador$Specie.Cod[grep("E.LU",ecuador$Specie.Code)]
+spp.i.loc.j <- which(ecuador$Specie.Code == "LU" & ecuador$Location == "SHRUB")
+
+
+
+plot(ecuador[spp.i.loc.j.a,"N"] ~ ecuador[spp.i.loc.j.a,"time_cts"])
+plot(ecuador[spp.i.loc.j.a,"N"][order.t] ~ ecuador[spp.i.loc.j.a,"time_cts"][order.t])
+
+
+order.t <- order(ecuador[spp.i.loc.j.a,"time_cts"])
+x <- tsglm(ecuador[spp.i.loc.j.a,"N"][order.t],
+      model = list(past_obs = 1),
+      distr = "poisson")
+
+x <- tsglm(ecuador[spp.i.loc.j.a,"N"][order.t],
+      model = list(past_obs = 1),
+      xreg=ecuador[spp.i.loc.j.a,"time_cts"][order.t],
+      distr = "poisson")
+
+
+y <- tsglm(ecuador[spp.i.loc.j.a,"N"][order.t],
+      model = list(past_obs = 1),
+      link = "log",
+      distr = "poisson")
+
+y <- tsglm(ecuador[spp.i.loc.j.a,"N"][order.t],
+      model = list(past_obs = 1),
+       xreg=ecuador[spp.i.loc.j.a,"time_cts"][order.t],
+      link = "log",
+      distr = "poisson")
+
+
+
+z <- glm(ecuador[spp.i.loc.j.a,"N"] ~ ecuador[spp.i.loc.j.a,"time_cts"],
+         family = "poisson")
+
+z. <- glm(N ~ 1,
+          data = ecuador[spp.i.loc.j.a, ],
+         family = "poisson")
+
+
+coef(x)
+coef(y)
+coef(z)
+coef(z.)
+log(z[[1]])
+     
+
+
+summary(x)
+summary(y)
+```
+
+
+
+
+## INLA
+
+```{r}
+data("ecuador")
+spp.i <- grep("LALA",ecuador$Specie.Code)
+ecuador$time_cts2 <- ecuador$time_cts
+ecuador$Location_num <- as.numeric(as.character(ecuador$Location))
+ecuador$Location_fac <- factor(ecuador$Location)
+summary(ecuador[spp.i,c("N","Location","time_cts")])
+
+# sample model
+# model_1site <- inla(
+#     count ~ 
+#       env +
+#       f(year, model = "ar1", replicate = site) + 
+#       f(year2, model = "iid"), 
+#     data = dataset,
+#     family = "poisson"
+#   )
+
+model_Body_Size <- inla(
+    N ~ 
+      Body_Size +
+      f(time_cts, model = "ar1", replicate = Location) + 
+      f(time_cts2, model = "iid"), 
+    data = ecuador[spp.i,],
+    family = "poisson"
+  )
+
+model_1site <- inla(
+    N ~ time_cts +
+      f(time_cts, model = "ar1", replicate = Location), #+ 
+      #f(time_cts2, model = "iid"), 
+    data = data=ecuador[spp.i,],
+    family = "poisson"
+  )
+```
+
+
+```{r}
+mod.gls <- gls(log(N+1) ~ time_cts*Location, data=ecuador[spp.i,], 
+               correlation=corCAR1(form = ~time_cts|Location))
+
+mod.gls <- gls(log(N+1) ~ time_cts*Location, data=ecuador[spp.i,], 
+               correlation=corCAR1(form = ~time_cts|Location))
+
+```
+
+ 
+```{r}
+form_1spp1Loc_FULL_RF <- formula(N ~ 1 +          # Intercept
+                      time_cts +                  # Continuous time variable
+                      ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +
+                      
+                      (time_cts + 
+                       0|Specie.Code:Location) +   # Species-location RS
+                      
+                      offset(log(tot_net_hours))   # offset for effort
+                      )
+```
+
+ 
+ 

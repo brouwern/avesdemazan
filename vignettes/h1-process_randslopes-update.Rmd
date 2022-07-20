@@ -1,0 +1,626 @@
+---
+title: "h) Process best model"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{h) Process best model}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+## Introduction
+
+This script
+
+1. Re-fits the best model
+1. Extracts the random slopes
+
+
+
+
+## Preliminaries
+
+
+
+### Load packages
+```{r House-keeping, warning = FALSE, message = F, echo = T, eval = TRUE}
+# Data cleaning
+library(dplyr)      
+library(tidyr)   
+library(reshape2)
+library(stringi)  
+
+
+# Model fitting
+library(lme4)       # glmer() for glmm
+library(glmmTMB)    # glmm with AR-1  
+library(blme)       # bglmer (used?)
+
+# Model evaluation
+library(afex)       # functionall_fit()
+library(multcomp)   
+library(emmeans)
+library(arm)        # se.fit()
+
+# Result visualization
+library(ggplot2)    
+library(ggstance)  
+library(grid)
+library(gridExtra)  
+
+#  markdown etc
+library(knitr)     
+
+  
+```
+
+
+afex::all_fit 
+
+
+## Best model 
+
+
+```{r Show best model specification, eval = F, include = TRUE, warning = FALSE}
+# This is the best model structure
+data(fit_pois_corr_FULL_RF)
+
+# This is a reduced model structure
+### NEEDS UPDATE
+data(fit_pois_corr_only_sppLoc)  #  <<<==== NEEDS UPDATE
+
+# mis-specified models, for comparison
+data(fit_nb2_corr_misspec)  # nb mis-spec
+data(fit_pois_corr_misspec) # pois mis-spec
+
+# check modesl
+diagnose(fit_pois_corr_FULL_RF)
+diagnose(fit_pois_corr_only_sppLoc) # has issue with Wald stats
+diagnose(fit_nb2_corr_misspec)
+diagnose(fit_pois_corr_misspec) # has issue with Wald stats
+```
+
+
+Save best model to the object `best_model`.
+```{r}
+best_model <- fit_pois_corr_FULL_RF
+usethis::use_data(best_model,
+                  overwrite = TRUE)
+# usethis::use_r("best_model")
+```
+
+
+
+
+## Examine best model
+
+Examine best model and compare with ES-type model
+
+```{r}
+
+fixef(best_model)
+fixef(fit_pois_corr_only_sppLoc)
+
+AIC(best_model,fit_pois_corr_only_sppLoc)
+
+```
+
+
+```{r}
+summary(best_model)
+summary(fit_pois_corr_only_sppLoc)
+```
+
+
+
+## Look at random effects
+
+What is the model formula?
+```{r}
+formula(best_model)
+```
+
+
+```{r}
+x <- summary(best_model)
+x$varcor
+```
+
+Get the species-specific random slopes, which are nested within Location
+
+random-slopes specification
+              (time_cts + 0 | Specie.Code:Location)
+
+ar1 specification:
+ar1(as.ordered(time_cts) +  0 | Specie.Code:Location)
+```{r}
+# set model to process
+mod_working <- fit_nb2_corr_misspec
+
+# get ranefs
+ranefsx <- ranef(mod_working)
+
+# overall rand eff object
+# names(ranefsx)
+
+# zi = zero inflated; empty
+# ranefsx$zi
+
+# location of what we want
+## random slopes in "Specie.Code:Location" 
+## AR1 stuff     also in"Specie.Code:Location" 
+# names(ranefsx$cond)
+
+# everything associate with Specie.Code:Location
+## intercepts
+## rand slopes
+## ar1
+
+# get focal ranefs
+ranef_betas    <- ranefsx$cond$`Specie.Code:Location`
+
+x <- "Specie.Code:Location"
+dim(ranefsx$cond$"Specie.Code:Location")
+dim(ranefsx$cond[[x]])
+
+# get number of coefs
+# head(ranefsx$cond$`Specie.Code:Location`)
+N_randslopes <- dim(ranefsx$cond$`Specie.Code:Location`)[1] # 79 x 33
+
+
+
+#N_randslopes
+
+
+```
+
+Snapshot of the random slope
+
+**NOTE: these random slopes are deviations from the OVERALL slope parameter of the model!**
+```{r}
+# head(ranefsx$cond$`Specie.Code:Location`)
+```
+
+
+```{r}
+# vcov(best_model)
+```
+
+
+
+
+## Process random slopes
+
+
+Extract SD / var using TMB::sdreport()
+
+"After optimization of an AD model, sdreport() is used to calculate standard deviations of all model parameters"
+
+* `getJointPrecision	= Optional`. Return full joint precision matrix of random effects and parameters?
+  + From `sdreport` doc:"The full joint covariance is not returned by default, because it may require large amounts of memory. It may be obtained by specifying `getJointPrecision=TRUE`, ..."
+* `bias.correct`	= logical indicating if bias correction should be applied
+
+
+### Get TMB sd report
+
+
+Models I am currently looking at
+
+* best_model
+* fit_pois_corr_only_sppLoc: same ranef struct of ES but updated
+* fit_nb2_corr_misspec: ES original model
+* fit_pois_corr_misspec: ES form, updated with
+
+This takes a second
+```{r}
+# Get TMB sd report
+s1 <- TMB::sdreport(obj = mod_working$obj, 
+                    getJointPrecision = TRUE, 
+                    bias.correct = TRUE)
+```
+
+The summary output of `sdreport` are the coefficients and SE for the **main effects** of the model
+```{r}
+s1
+```
+
+This is the same result
+```{r}
+# Get fixed eff summary
+## summary output of `sdreport` are the coefficients and SE for the **main effects** of the model
+fix_eff_summary <- summary(s1,"fixed")
+n_fix_eff <- length(grep("^beta$",row.names(fiexed_eff_summary)))
+```
+
+This is basically the sames as `summary()` on the original model object
+```{r}
+# summary(s1,"fixed", p.value = TRUE)
+```
+
+
+The summary for the random effects
+```{r}
+#head(summary(s1, "random") , 10)
+
+# Get raneff eff summary
+raneff_summary <- as.data.frame(summary(s1, "random"))
+```
+
+There are **MANY** random effects coefficients 
+```{r}
+# dim(summary(s1, "random"))
+```
+
+
+The output of the `sdreport()` is complex
+```{r}
+# is(s1)
+# names(s1)
+# 
+# # covariance matrix of fixed effects
+# s1$cov.fixed
+
+```
+
+The diagonal of the SE cov matrix is 1336 
+(OLD comment by NLB: "I assume the whole matrix isn't available b/c its big and/or b/c its not very useful"; not sure what I meant by this....)
+```{r}
+# x <- s1$diag.cov.random
+# x <- as.data.frame(x)
+# dim(x) # 1336
+
+
+```
+
+
+Compare the summary output to the covariance matrix diagonal
+```{r}
+# raneff_summary2 <- cbind(raneff_summary, x)
+# dim(raneff_summary2)
+# head(raneff_summary2)
+```
+
+
+### Convert 
+
+```{r}
+# convert s1 to s2
+s2 <- sqrt(s1$diag.cov.random)
+
+
+# length(s2) #1336
+
+# ? 
+## 1345 x 1345
+
+# solve()
+test <- solve(s1$jointPrecision)
+
+
+#dim(test)
+
+# 1345-1336
+
+# summary(s1,"fixed", p.value = TRUE)
+# dim(summary(s1,"fixed", p.value = TRUE))[1]
+
+# 9 parameters relatd to fixed effects
+## 4 betas
+## 1 betad (dispersion?)
+## 4 thetas
+```
+
+Extract something to get SD
+```{r}
+#?
+## output is just df of 0 (?)
+
+# determine total number of parameters (?)
+parameters <- mod_working$obj$env$par
+parameters <- as.data.frame(parameters)
+
+# head(parameters) 
+# dim(parameters)
+# is(parameters)
+
+# get parameters names
+## 4 "beta", rest "b"
+## 4 betas = intercept, time_cts, etc  fixed effects
+parameters$names <- names(mod_working$obj$env$par)
+
+#head(parameters)
+
+# get sd from "test" object 
+# length(diag(test)) == dim(parameters)[1]
+parameters$sd <- sqrt(diag(test))
+
+#dim(parameters)
+```
+
+
+Create column for name of coefficient
+
+hard-coded indices from ES code replaced
+
+```{r}
+i <- N_randslopes
+
+# length(parameters$variable) # 1345
+
+# colmn to store ....
+parameters$variable <- NA  # create new column
+
+
+# Get names for fixed effects
+names_fix_eff <- names(fixef(mod_working)$cond)
+parameters$variable[1:n_fix_eff] <-  names_fix_eff
+
+# 162 - (n_fix_eff+1) # 157
+
+# math (or ES model)
+# N_randslopes*2 # 158
+# 158 random slope estimates, 
+# N_randslopes*2+n_fix_eff
+
+# set up indices for naming
+tot_rand_int_and_slopes <- N_randslopes*2
+tot_betas               <- N_randslopes*2+n_fix_eff
+
+# name random intercepts and slopes
+# length((n_fix_eff+1):tot_betas) == (N_randslopes*2)
+parameters$variable[(n_fix_eff+1):tot_betas] <-   c(rep("Intercept", N_randslopes), 
+                                                    rep("time_cts", N_randslopes))
+# only 162 parameters
+## but parameters objects is 1345; what are the rest?
+## AR1?
+# 4 + N_randslopes*2
+
+# 1345 - c(4 + N_randslopes*2) # 1183
+
+# There are a LOT of parameters associated with the AR1 stuff
+## about 38 spp x 31 time points
+# 38*31
+
+# This accounts for most of the rows in parameters; 
+## 1345: size of joint precision matrix
+## 4 = number of fixed effects
+## 2*N_randslopes b/c intercept and slope
+## AR1 stuff is 38 * 31
+# 1345 - c(4 + 2*N_randslopes) - 38*31
+```
+
+
+
+
+Name coefficients 
+```{r}
+# create column for species names
+parameters$spp <- NA
+
+# set up name
+## "Population" = "Population mean" = fixed effect
+fixed_eff_names          <- rep("Population", 4) #why population?
+rand_eff_intercept_names <- rownames(ranef(mod_working)[[1]]$`Specie.Code:Location`)
+rand_eff_slope_names     <- rand_eff_intercept_names
+
+parameters$spp[1:n_fix_eff] <- fixed_eff_names
+parameters$spp[(n_fix_eff+1):tot_betas]  <- c(rand_eff_intercept_names,    
+                           rand_eff_slope_names)
+```
+
+
+loop over x and combine y into sd
+
+TODO: check - things are hard coded here - does that matter?
+
+I think ES codded the delta method here
+
+```{r}
+# slope estimate = -0.028207, SE = 0.009887
+# test[4,4] # SD for slope
+# sqrt(test[4,4]) 
+
+
+```
+
+```{r}
+# place to hold sd
+parameters$combo_sd <- NA
+
+# Slopes start at 84
+## 
+## head(parameters[75:88,])
+
+# determine indices
+intercept.first <- N_randslopes+n_fix_eff # last intercept
+slope.first     <- N_randslopes+n_fix_eff +1  #first slope
+
+# ? fix eff?
+slope.i <- 4
+
+# note: i starts at 0
+# 0:78?  78 = ?
+for (i in 0:78)
+{ 
+  # combined SD  using delta method (?)                
+  parameters$combo_sd[slope.first+i] <- sqrt(test[slope.i,slope.i] + # fixef SLOPE var
+                                             test[slope.first+i,slope.first+i] +  # ranef slope var
+                                            2*test[slope.first+i,slope.i]) # fixef-ranef COVARIANCE
+}
+
+```
+
+
+
+## Extract SE 
+
+```{r Store standard errors, echo = T, fig.height = 7.25}
+# 4 = number of fiexed effects?
+slope.first <- N_randslopes+ n_fix_eff + 1  #first slope
+slope.last <- 2*N_randslopes + n_fix_eff   #last slope
+
+# get subset that we want
+##  could do this with na.omit too
+subset_for_merge <- parameters[slope.first:slope.last,c("spp","combo_sd")]
+colnames(subset_for_merge)[1] <- "id"
+
+sd_int   <- s2[1:N_randslopes]
+sd_slope <- s2[(N_randslopes+1):2*N_randslopes]
+
+slopes <- ranef(best_model)[["cond"]]$`Specie.Code:Location` # 79 x 2
+
+# dim(slopes)
+#ranef(best_model)[[1]]$`Specie.Code` # 38 x 33
+# 79 * 2 + 38 * 33
+
+# SE for fixed effects
+s0 <- mod_working$sdr
+
+
+# combine fixed effect and random effect slope
+                       #time coefficient                      # ? individual time slope?
+fixed_eff_slope <-  summary(mod_working)[["coefficients"]]$cond["time_cts","Estimate"]
+slopes$time_cts_tot <- fixed_eff_slope+  slopes$time_cts
+
+# calculate 95% CI
+slopes$time_sd  <- sd_slope
+slopes$time_lb  <- slopes$time_cts_tot - 1.96*slopes$time_sd
+slopes$time_ub  <- slopes$time_cts_tot + 1.96*slopes$time_sd
+
+# set labels
+slopes$spp <- substring(rownames(slopes), 1, 4)
+slopes$loc <- substring(rownames(slopes), 6, 9)
+slopes$id <- rownames(slopes)
+
+# 
+slopes.unique <- slopes[!duplicated(slopes$spp),]
+
+levels.spp <- slopes.unique[order(slopes.unique$time_cts_tot),]$spp
+levels.id <- slopes[order(slopes$time_cts_tot),]$id
+slopes$spp2 <- ordered(slopes$spp, levels = levels.spp)
+slopes$id2 <- ordered(slopes$id, levels = levels.id)
+
+# merge
+slopes <- left_join(slopes, 
+                    subset_for_merge, by = "id")
+
+# calculate lower (lb) and upper (ub) bound of CIs
+## NOTE: use slopes$time_cts_tot (as shown and as was in orig script)
+###      NOTE time_cts
+slopes$time_lb2  <- slopes$time_cts_tot - 1.96*slopes$combo_sd
+slopes$time_ub2  <- slopes$time_cts_tot + 1.96*slopes$combo_sd
+
+slopes$Sig <- ifelse(slopes$time_ub2 < 0, "Sig.", "NS")
+
+
+# ggplot(data = slopes, aes(x = time_cts, y = slopes$spp2)) +
+#   geom_point(aes(x = time_cts, y = spp2)) +
+#   geom_segment(aes(x = time_lb, xend = time_ub, y = spp2, yend = spp2)) +
+#   facet_grid(~loc) +
+#   geom_vline(aes(xintercept = 0, color = "No Change")) +
+#   geom_vline(aes(xintercept = summary(best_model)[[6]]$cond[4,1], color = "Population-level estimate")) +
+#   #geom_rect(aes(xmin = -0.016779 - 1.96*0.003354, xmax = -0.016779 + 1.96*0.003354, ymin = -Inf, ymax = Inf), fill = "blue", alpha = 0.2) +
+#   xlab("Species-level time coefficient \n") + ylab("Species Code") +
+#   #scale_colour_manual(values = c("Population-level estimate" = "blue")) +
+#   scale_colour_manual(values =c("No Change" = "red", "Population-level estimate" = "blue")) +
+#   #scale_fill_manual(values = c("blue" = "blue")) +
+#   theme(panel.spacing = unit(1, "lines")) +
+#   theme(legend.position = "bottom", legend.title = element_blank(), legend.background = element_blank(), legend.box.background = element_rect(colour = "black"))
+
+# habitat labels for plots
+## main labels
+
+
+
+
+
+
+## ADD FINAL DETAILS
+
+# habitat_labels <- c("Secondary Forest\n(LLAV)", "Primary Forest\n(MASE)", "Introduced Forest\n(MAIN)")
+#habitat_labels <- c("Montane shrubland\n(SHRUB)", "Native Forest\n(NATIVE)", "Mixed Native & Introduced Forest\n(MIXED)")
+habitat_labels <- c("SHRUB", "NATIVE", "MIXED")
+
+## vector names
+# names(habitat_labels) <- c("LLAV","MASE", "MAIN")
+names(habitat_labels) <- c("SHRUB","NATIVE", "MIXED")
+
+
+##
+## Species list
+data("Ecuador_Species_List")
+spp_trt <- Ecuador_Species_List
+
+
+spp_trt$Species_SciName <- gsub("[\\(\\)]", "", regmatches(spp_trt$Species, gregexpr("\\(.*?\\)", spp_trt$Species)))
+
+
+spp_trt$Species_SciName <- paste0(substr(spp_trt$Species_SciName,1,1),". ", sub("^\\S+\\s+", '', spp_trt$Species_SciName))
+
+
+i.col <- which(colnames(spp_trt) %in% c("Specie.Code", "Species_SciName"))
+
+spp_trt[,i.col[1]] <- as.character(spp_trt[,i.col[1]])
+
+slopes.unique <- dplyr::left_join(slopes.unique, spp_trt[,i.col], by = c("spp" = "Specie.Code"))
+
+slopes <- dplyr::left_join(slopes, spp_trt[,i.col], by = c("spp" = "Specie.Code"))
+
+slopes$Species_SciName2 <- ordered(slopes$Species_SciName, levels = slopes.unique[order(slopes.unique$time_cts),]$Species_SciName)
+
+
+
+```
+
+
+
+
+Site descriptions from MS
+"We placed three sampling sites in areas with unique habitat types. 
+These included: 
+(1) native, mature secondary, subtropical moist broadleaf forest (NATIVE) located in Mazán; 
+(2) mixed native and non-native forest (MIXED) also located in Mazán; and
+(3) native montane shrubland (SHRUB) located in Llaviuco Valley."
+
+
+Change labels from those used in earlier drafts of MS 
+```{r}
+slopes$loc.orig <- slopes$loc
+
+slopes$loc <- gsub("LLAV","SHRUB",slopes$loc)
+slopes$loc <- gsub("MAIN","MIXED",slopes$loc)
+slopes$loc <- gsub("MASE","NATIVE",slopes$loc)
+
+# set order
+slopes$loc <- factor(slopes$loc, levels = c("NATIVE","MIXED","SHRUB"))
+slopes$loc <- factor(slopes$loc, levels = c("SHRUB","MIXED","NATIVE"))
+```
+
+```{r}
+summary(slopes$loc)
+```
+
+
+
+Save slopes
+
+```{r}
+write.csv(slopes, file = "species_specific_slops.csv")
+```
+
+
+```{r}
+slopes
+```

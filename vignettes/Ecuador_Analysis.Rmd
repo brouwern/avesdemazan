@@ -1,0 +1,2371 @@
+---
+title: "Ecuador analysis"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Ecuador analysis}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+
+
+## Preliminaries
+
+
+### Re-Install problematic packages
+```{r}
+# install.packages("Matrix")
+#install.packages("TMB",dependencies = T)
+#install.packages("glmmTMB", type="source")
+```
+
+RcppEigen?
+
+
+### Load packages
+```{r House-keeping, warning = FALSE, echo = FALSE, include = FALSE}
+# Data cleaning
+library(dplyr)      
+library(tidyr)   
+library(reshape2)
+library(stringi)  
+
+
+# Model fitting
+library(lme4)       # glmer() for glmm
+library(glmmTMB)    # glmm with AR-1  
+library(blme)       # bglmer (used?)
+
+# Model evaluation
+library(afex)       # functionall_fit()
+library(multcomp)   
+library(emmeans)
+library(bbmle)      # aictab
+library(arm)        # se.fit()
+
+# Result visualization
+library(ggplot2)    
+library(ggstance)  
+library(grid)
+library(gridExtra)  
+
+#  markdown etc
+library(knitr)     
+
+# Miscellaneous
+
+# library(rgl)        # ?  "3D Visualization Using OpenGL"
+# Error: package or namespace load failed for ‘rgl’:
+#  .onLoad failed in loadNamespace() for 'rgl', details:
+#   call: rgl.init(initValue, onlyNULL)
+#   error: OpenGL is not available in this build
+# In addition: Warning messages:
+# 1: 	Loading rgl's DLL failed. 
+# 	This build of rgl depends on XQuartz, which failed to load.
+#  See the discussion in https://stackoverflow.com/a/66127391/2554330 
+# 2: Trying without OpenGL... 
+## issues with XQuartz, OpenGL
+## https://stackoverflow.com/a/66127391/2554330 
+  
+
+
+## Community ecology
+library(iNEXT)      # rarefaction
+
+```
+
+
+
+## Get current version / citation info 
+
+```{r}
+packageVersion("glmmTMB")
+citation("bbmle")
+```
+
+
+### Load data
+
+
+### Main data files
+
+
+```{r}
+# Load data
+## ?
+data("ecuador_5") # dim: 6860 x  11
+ecuador <- ecuador_5
+
+## ?
+data("ecuador_working")# dim: 4708 x  23
+
+## ?
+# ecuador_pc <- read.csv("ecuador_pc.csv")      # ?
+
+## Species list
+data("Ecuador_Species_List")
+spp_trt <- Ecuador_Species_List
+```
+
+
+
+
+### Note: net hours
+
+Net hours are in the ecuador_5.csv file
+```{r}
+names(ecuador)[grep("net",names(ecuador))]
+names(ecuador)[grep("Loc",names(ecuador))]
+
+```
+
+
+Update Location names
+```{r}
+ecuador$Location <- gsub("LLAV","SHRUB",ecuador$Location)
+ecuador$Location <- gsub("MAIN","MIXED",ecuador$Location)
+ecuador$Location<- gsub("MASE","NATIVE",ecuador$Location)
+```
+
+
+## Dataset background
+
+\textbf{Location:} There were two locations and two sampling sites within each location for a total of four sites. LLAV and SANA were in Llaviucu and MASE and MAIN were in Mazan. There are data from SANA for only 5 out of the 11 years; data from this site were excluded from analysis. The remaining three sites have data from 2006-2016. There are 11 observations from LLAV in March, 2017 (relative to hundreds of observations from other years); these 11 observations were excluded from analysis. $\\$
+
+```{r, echo = FALSE}
+habitats <- data.frame(Site = c("LLAV","MASE","MAIN"), 
+                       `Habitat Type` = c("Secondary forest", "Primary forest", "Introduced forest"))
+
+colnames(habitats)[2] <- "Habitat Type"
+
+kable(habitats, 
+      caption = "Habitat type for 3 locations in working dataset")
+```
+
+\textbf{Session:} Sampling occurred in three sessions of approximately 6 days each. The metadata associated with the original dataset state that each sampling session was two days; however, the dates associated with bandings and recaptures consistently occur over approximately 6 days (range: 5-8). The 6 days are not necessarily consecutive. The exact timing of the first, second, and third sessions varied by year but occurred in the following windows: the first session was between March 21 and May 6, the second session was between July 19 and September 9, and the third session was between October 30 and December 20. In two cases (segunda 13, primera 16), sampling occurred at a time different enough from other years that data were excluded from analysis to maintain the validity of grouping variables in the regression models. Most of the tercera 13 observations were temporally consistent with the other years; 70 observations from tercera 13 occurred much later and were excluded from analysis. The working dataset is visualized below. Data from within the three black boxes were included in the analysis. $\\$ 
+
+```{r, echo = FALSE, out.width = "100%", out.align='center'}
+# knitr::include_graphics("Picture1.png")
+```
+
+\newpage
+
+## Summary statistics
+
+
+
+### Mist net data
+
+The ecuador_working .csv is not fully formatted and used is only for basic data number of captures etc, including the un-tagged birds, etc 
+
+```{r Summary statistics, echo = FALSE}
+ecuador_id <- ecuador_working
+n_ids <- length(unique(ecuador_working$Band.Number))
+
+n_unb <- length(which(ecuador_id$Band.Size == "UNB"))
+
+n_cap <- length(ecuador_id$X)
+
+n_spp <- length(unique(ecuador_id$Specie.Code))
+```
+There are `r n_spp` unique species. There are `r n_ids` unique, banded birds; this value was calculated by finding the number of unique band numbers. There are `r n_unb` unbanded birds. There are `r n_cap` total captures.
+
+```{r Summary by year: mist net, echo = FALSE}
+yearsite <- ecuador_id %>% 
+  group_by(.dots = c("Band.Number","Specie.Code", "year", "Location")) %>% 
+  summarise(N = n()) %>%
+  group_by(.dots = c("Specie.Code", "year", "Location")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("year", "Location")) %>%
+  summarise(N = n()) %>% spread(Location, N)
+
+colnames(yearsite) <- c("Year", "Secondary Forest", "Primary Forest", "Introduced Forest")
+
+kable(yearsite, caption = "Total unique species by year and location")
+
+site <- ecuador_id %>%
+  group_by(.dots = c("Band.Number", "Specie.Code", "Location")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("Specie.Code", "Location")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("Location")) %>%
+  summarise(N = n())
+
+kable(site, caption = "Total unique species by location")
+
+year <- ecuador_id %>%
+  group_by(.dots = c("Band.Number", "Specie.Code", "year")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("Specie.Code", "year")) %>%
+  summarise(N = n()) %>%
+  group_by(.dots = c("year")) %>%
+  summarise(N = n()) 
+
+colnames(year)[1] <- "Year"
+
+kable(year, caption = "Total unique species by year")
+```
+
+```{r Annual totals (excluding recaptures), echo = FALSE}
+# Reshape data
+cast.by.id <- dcast(data = ecuador_id,
+                    formula = year + Location + Session ~ Band.Number,
+                    value.var = "Band.Number",
+                    fun.aggregate = length)
+
+# Convert to long format
+cast.by.id.long <- cast.by.id %>% gather("Band.Number", "n", 4:3603)
+cast.by.id.long$pres.abs <- ifelse(cast.by.id.long$n > 0, 1, 0)
+
+# NOTE: this dataframe won't contain data from birds that were not banded (because they do not have a band number)
+# The total number of unbanded individuals per year per site will have to be added subsequently
+
+# Change all positive captures to equal 1
+# Want to get accurate count of number of inidividuals, excluding recaptures
+# If entries > 1 were not modified, we would get an inflated estimate of abundance (1 individual getting counted multiple times)
+# This function changes data to presence/absence (1 = presence, 0 = absence)
+fx01 <- function(x)
+{
+  ifelse(x > 0, 1, 0)
+}
+
+# Apply function to all count data
+cast.by.id[,-c(1:3)] <- apply(cast.by.id[,-c(1:3)], 2, fx01)
+
+# Sum across rows to calculate total number of individuals captured in each location
+id.tot <- apply(cast.by.id[,-c(1:3)], 1, sum)
+
+# Create table to store year, location, session, and total number of unique individuals
+ann.tot.id <- cast.by.id[,c("year","Location","Session")]
+ann.tot.id$id.tot <- id.tot
+ann.tot.id$Session <- gsub("[ ][01][01-9]","",ann.tot.id$Session)
+```
+
+
+Plot Raw counts of total
+
+```{r}
+ggplot(data = ann.tot.id,
+       aes(y = id.tot, 
+           x = year, 
+       color = Session)) +
+  geom_point() +
+  geom_line() +
+  facet_grid(Location~Session)
+```
+
+
+
+
+
+
+\newpage
+
+### Point count data
+
+
+```{r, echo = FALSE}
+# n_pcs <- length(unique(ecuador_pc$X))
+# 
+# n_pc_sp <- length(levels(ecuador_pc$Especie))
+```
+<!-- There are `r n_pcs` point counts. There are `r n_pc_sp` species. -->
+
+```{r Summary by year: point count, echo = FALSE}
+# yearsite_pc <- ecuador_pc %>% 
+#   group_by(.dots = c("Specie.Code", "year", "Location")) %>% 
+#   summarise(N = n()) %>%
+#   group_by(.dots = c("Specie.Code", "year", "Location")) %>%
+#   summarise(N = n()) %>%
+#   group_by(.dots = c("year", "Location")) %>%
+#   summarise(N = n()) %>% spread(Location, N)
+# 
+# colnames(yearsite_pc)[1] <- "Year"
+# 
+# kable(yearsite_pc, caption = "Total unique species by year and location")
+# 
+# site_pc <- ecuador_pc %>%
+#   group_by(.dots = c("Specie.Code", "Location")) %>%
+#   summarise(N = n()) %>%
+#   group_by(.dots = c("Location")) %>%
+#   summarise(N = n())
+# 
+# kable(site_pc, caption = "Total unique species by location")
+# 
+# year_pc <- ecuador_pc %>%
+#   group_by(.dots = c("Specie.Code", "year")) %>%
+#   summarise(N = n()) %>%
+#   group_by(.dots = c("year")) %>%
+#   summarise(N = n()) 
+# 
+# colnames(year_pc)[1] <- "Year"
+# 
+# kable(year_pc, caption = "Total unique species by year")
+```
+
+## Rarefaction
+
+```{r Rarefaction, echo = FALSE, warning = FALSE, fig.height = 4.15}
+# load("../data/rarefaction.RData")
+# # jpeg("MistNetRarefaction.jpg", width = 3000, height = 1500, res = 300)
+# mn3.plot + ggtitle("Mist Net Data")
+# # jpeg("PointCountRarefaction.jpg", width = 3000, height = 1500, res = 300)
+# pc.plot + ggtitle("Point Count Data")
+# dev.off()
+```
+
+
+```{r Species list, warning = FALSE, echo = FALSE}
+# Species list (mist net)
+spp_list <- ecuador[,c("Specie.Code")]
+spp_list <- unique(spp_list)
+
+# Convert species list to dataframe 
+spp_list <- as.data.frame(unlist(spp_list))
+colnames(spp_list) <- c("Specie.Code")
+
+# Add indicator column (used for filtering merged dataframe)
+spp_list$ind <- rep(1,dim(spp_list)[1])
+
+# Prepare dataframes for merging
+spp_list$Specie.Code <- as.character(spp_list$Specie.Code)
+spp_trt$Specie.Code <- as.character(spp_trt$Specie.Code)
+
+# Merge dataframes
+spp_list <- full_join(spp_trt, spp_list, by = "Specie.Code")
+spp_list <- spp_list[-which(is.na(spp_list$ind) == TRUE), ]
+
+# Save species list
+# write.csv(spp_list,
+#           file = "../results/Species_List_mn.csv")
+```
+
+The species list is attached to the email. 
+
+```{r Species traits, warning = FALSE, echo = FALSE}
+# Merge trait data with species data
+ecuador$Specie.Code <- as.character(ecuador$Specie.Code)
+ecuador <- left_join(ecuador, spp_list, by = "Specie.Code")
+ecuador$Specie.Code <- as.factor(ecuador$Specie.Code)
+```
+
+## Regression output
+
+\textbf{Inclusion criterion:} We included only those species captured in 4 or more years (out of 11 years). $\\$
+
+\textbf{Regression model:} We modeled capture rate as a function of time and habitat type with random intercepts and random slopes for each species nested within each habitat. We used an autoregressive(1) negative binomial model to account for correlation across time. Autoregressive(1), or AR(1), models include the response variable at the previous time point as a predictor for the current time point; that is, the observed capture rate at time $t$ is used to predict the capture rate at time $t+1$. We compared different distributions, including poisson, negative binomial, zero-inflated poisson, zero-inflated negative binomial, and the negative binomial distribution performed best.
+
+```{r Make continuous time, echo = FALSE, warning = FALSE}
+# Make continuous time variable
+# Find all unique years
+years <- unique(ecuador$year)
+
+# Create new column for continuous time variable
+ecuador$time_cts <- NA
+
+# Create continuous time variable
+for (i in 1:length(years))
+{
+  # Index current year
+  i.year <- which(ecuador$year == years[i])
+  
+  # Calculate time variable
+  ecuador$time_cts[i.year] <- ifelse(ecuador$session[i.year] == "PRIMERA", 3*(i-1) + 1,
+                              ifelse(ecuador$session[i.year] == "SEGUNDA", 3*(i-1) + 2,
+                              ifelse(ecuador$session[i.year] == "TERCERA", 3*(i-1) + 3,
+                                                                           NA)))
+}
+
+# Change time unit = 1 year
+ecuador$time_cts <- ecuador$time_cts/3
+
+# Subset species caught 4 or more years
+ecuador0 <- ecuador
+ecuador <- ecuador %>% filter(tot.yrs > 3)
+ecuador$i <- 1:dim(ecuador)[1]
+
+# ?
+ecuador <- ecuador %>% filter(time_cts < 7.6 | time_cts > 7.7)
+ecuador <- ecuador %>% filter(time_cts < 10.3 | time_cts > 10.4)
+```
+
+
+Time organized in 1/3 of years.  
+year 1, session PRIMERA = 0.33 year
+year 1, session SEGUNDA = 0.667 year
+year 1, session TERCERA = 1.909 year
+year 1, session SEGUNDA = 1.33 year
+
+```{r}
+summary(factor(ecuador$time_cts[1:10]))
+```
+
+This plot shows how it works
+```{r}
+par(mfrow = c(1,2))
+plot(time_cts ~ year_cent, data = ecuador)
+plot(time_cts ~ year, data = ecuador)
+```
+
+
+
+
+
+### Save dataframe
+
+This is the dataframe used in analyses.
+
+It is 1949  x 22
+
+```{r}
+dim(ecuador) # 1949   22
+write.csv(ecuador,"ecuador.csv",row.names = F)
+
+# reload analysis data
+ecuador<- read.csv(file = "ecuador.csv")
+dim(ecuador)
+```
+
+
+
+## Model TOTAL individuals captures 
+
+```{r}
+head(ecuador)
+```
+
+
+```{r}
+# reload analysis data
+ecuador<- read.csv(file = "ecuador.csv")
+dim(ecuador)
+```
+
+```{r}
+# Aggregate across species
+ecuador_tot <- ecuador %>% group_by(year, 
+                                    session, Location, 
+                                    tot_net_hours, time_cts) %>%
+  summarize(N = sum(N))
+
+```
+
+
+```{r}
+names(ecuador_tot)
+head(ecuador_tot,10)
+```
+
+
+This shows total captures of species that are included in the GLMM, NOT total captures of ALL species
+```{r}
+ggplot(data = ecuador_tot,
+        aes(y = N/tot_net_hours*1000,
+            x = year,
+            color = session)) +
+  geom_point() +
+  facet_wrap(~Location) + 
+  geom_smooth(method = lm,se = F) + 
+  theme_bw()
+```
+
+
+### glmer
+
+```{r}
+glm_fit <- glm(N ~ 1 + time_cts +   # Null
+                     Location +                               # Location
+                     session + 
+                     time_cts*Location*session +                         # Continuous time variable
+                     offset(log(tot_net_hours)),
+                   family = poisson,
+                   data = ecuador_tot)
+
+# I haven't really thought about this modl
+glmm_fit <- lme4::glmer(N ~ 1 + time_cts +   # Null
+                     #Location +                               # Location
+                     #(1|session) +
+                     #(1|Location) +
+                     (1|year) +
+                     (time_cts|session:Location) + 
+                     #ns(time_cts,3) +                         # Continuous time variable
+                     offset(log(tot_net_hours)),
+                   family = poisson,
+                   data = ecuador_tot)
+summary(glmm_fit)
+```
+
+
+### glmmTMB
+
+this stucture is currently different from the glmer() vs above
+```{r}
+
+
+# Fit negative binomial
+library(splines)
+fit_nb2 <- glmmTMB(N ~ 1 + time_cts +   # Null
+                     Location +                               # Location
+                     session + 
+                     #ns(time_cts,3) +                         # Continuous time variable
+                     offset(log(tot_net_hours)),
+                   family = poisson,
+                   data = ecuador_tot)
+
+summary(fit_nb2)
+```
+
+
+
+
+
+
+
+## Test model - glmmTMB
+
+```{r}
+(m1 <- glmmTMB(count ~ mined + (1|site),
+  zi=~mined,
+  family=poisson, data=Salamanders))
+summary(m1)
+```
+
+Throwing an error, but according to Bolker its harmless
+https://stackoverflow.com/questions/67040472/warning-in-every-model-of-glmmtmb-givecsparse
+
+Warning messages:
+1: In Matrix::sparseMatrix(dims = c(0, 0), i = integer(0), j = integer(0),  :
+  'giveCsparse' has been deprecated; setting 'repr = "T"' for you
+
+
+## Species-specifc models
+
+
+```{r}
+# reload analysis data
+ecuador<- read.csv(file = "ecuador.csv")
+dim(ecuador)  # 1949 x 22
+```
+
+
+
+### Poison normal - deprecated 
+
+```{r Mixed models, echo = FALSE, cache = TRUE, warning=FALSE, include = FALSE}
+# 
+# # 
+# glmer.poisnorm.all <- glmmTMB(N ~ 1 +                               # Null
+#                                 Location +                          # Location
+#                                 session +                           # Session
+#                                 (1|Specie.Code) +                   # Species-level intercept
+#                                 (1|year) +                          # Intercept for each year
+#                                 (1|session:year) +     # Intercept for each yr nested w/in each session
+#                                 (year_cent|Specie.Code:session:Location),   # Slopes for each spp w/in each session w/in each loc
+#                                 #(1|i),                             # Ind level random effect for pois-norm
+#                               family = poisson,
+#                               data = ecuador,
+#                               offset = log(tot_net_hours) ,
+#                               control = glmerControl((optimizer = "bobyqa"))
+#                               )
+# 
+# glmer.poisnorm.all.time <- glmer(N ~ 1 +                                     # Null
+#                                      Location +                              # Location
+#                                      time_cts +
+#                                      (1|Specie.Code:Location) +              # Species-level intercept
+#                                      (0 + time_cts|Specie.Code:Location),    # Slopes for each spp within each location
+#                                 family = poisson,
+#                                 data = ecuador,
+#                                 offset = log(tot_net_hours),
+#                                 control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+
+
+
+## Standard GLMMs - no autocorrelation
+
+These throw errors but this isn't an issue according to Bolker
+https://stackoverflow.com/questions/67040472/warning-in-every-model-of-glmmtmb-givecsparse
+
+```{r glmmTMB models, echo = FALSE, warning=FALSE}
+fit_pois <- glmmTMB(N ~ 1 +                                   # Intercept
+                      Location +                              # Location
+                      time_cts +                              # Continuous time variable
+                      (1|Specie.Code:Location) +              # Species-level intercept
+                      (time_cts + 0|Specie.Code:Location) +   # Species-location slopes
+                      offset(log(tot_net_hours)),             # Offset for effort
+                      family = poisson,
+                      data = ecuador)
+
+fit_zip <- glmmTMB(N ~ 1 +                                                    # Null
+                     Location +                                               # Location
+                     time_cts +                                               # Continuous time variable
+                     (1|Specie.Code:Location) +                               # Species-level intercept
+                     (time_cts + 0|Specie.Code:Location) +
+                     offset(log(tot_net_hours)),
+                   family = poisson,
+                   ziformula = ~1,
+                   data = ecuador)
+
+# not run by EM
+fit_nb1 <- glmmTMB(N ~ 1 +                                                    # Null
+                     Location +                                               # Location
+                     time_cts +                                               # Continuous time variable
+                     (1|Specie.Code:Location) +                               # Species-level intercept'
+                     (time_cts + 0|Specie.Code:Location) +
+                     offset(log(tot_net_hours)),
+                   family = nbinom1,
+                   data = ecuador)
+
+fit_nb2 <- glmmTMB(N ~ 1 +                                                    # Null
+                     Location +                                               # Location
+                     time_cts +                                               # Continuous time variable
+                     (1|Specie.Code:Location) +                               # Species-level intercept'
+                     (time_cts + 0|Specie.Code:Location) +
+                     offset(log(tot_net_hours)),
+                   family = nbinom2,
+                   data = ecuador)
+
+fit_zinb2 <- glmmTMB(N ~ 1 +                                                  # Null
+                       Location +                                             # Location
+                       time_cts +                                             # Continuous time variable
+                       (1|Specie.Code:Location) +                             # Species-level intercept
+                       (time_cts + 0|Specie.Code:Location) +
+                       offset(log(tot_net_hours)),
+                     family = nbinom2,
+                     ziformula = ~ 1,
+                     data = ecuador)
+```
+
+
+## GLMMs + AR(1)
+
+
+```{r AR-1 models, echo = FALSE, warning=FALSE}
+fit_pois_corr <- glmmTMB(N ~ 1 +                                                   # Null
+                           Location +                                              # Location
+                           time_cts +                                              # Continuous time variable
+                           (1|Specie.Code:Location) +                              # Species-level intercept
+                           (time_cts + 0|Specie.Code:Location) +
+                           ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +   # Autocorrelation across time
+                           #(1|i) +                                               # Individual level random effect for pois-norm
+                           offset(log(tot_net_hours)),
+                         family = poisson,
+                         data = ecuador)
+
+
+## Major Convergence problems
+# fit_zip_corr <- glmmTMB(N ~ 1 +                                                    # Null
+#                           Location +                                               # Location
+#                           time_cts +                                               # Continuous time variable
+#                           (1|Specie.Code:Location) +                               # Species-level intercept
+#                           (time_cts + 0|Specie.Code:Location) +
+#                           ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +     # Autocorrelation across time
+#                           #(1|i) +                                                  # Individual level random effect for pois-norm
+#                           offset(log(tot_net_hours)),
+#                         family = poisson,
+#                         ziformula = ~1,
+#                         data = ecuador)
+
+fit_nb1_corr <- glmmTMB(N ~ 1 +                                                    # Null
+                          Location +                                               # Location
+                          time_cts +                                               # Continuous time variable
+                          (1|Specie.Code:Location) +                               # Species-level intercept
+                          (time_cts + 0|Specie.Code:Location) +
+                          ar1(as.ordered(time_cts) + 0|Specie.Code) +              # Autocorrelation across time
+                          offset(log(tot_net_hours)),
+                        family = nbinom1,
+                        data = ecuador)
+
+
+# fit_nb2_corr <- glmmTMB(N ~ 1 +                                   #  Intercept
+#                       Location +                                  # Location
+#                       time_cts +                                  # Continuous time variable
+#                       (1|Specie.Code:Location) +                  # Species-level intercept
+#                       (time_cts + 0|Specie.Code:Location) +       # Species-location slopes
+#                       offset(log(tot_net_hours)),                 # Offset for effort
+#                       ar1(as.ordered(time_cts) + 0|Specie.Code) + # Autocorrelation across time
+#                       family = nbinom2,
+#                       data = ecuador)
+
+
+fit_nb2_corr <- glmmTMB(N ~ 1 +                                                    # Null
+                          Location +                                               # Location
+                          time_cts +                                               # Continuous time variable
+                          (1|Specie.Code:Location) +                               # Species-level intercept
+                          (time_cts + 0|Specie.Code:Location) +
+                          ar1(as.ordered(time_cts) + 0|Specie.Code) + # Autocorrelation across time
+                          offset(log(tot_net_hours)),
+                        family = nbinom2,
+                        data = ecuador)
+
+# waring: "Model convergence problem; extreme or very small eigen values detected. See vignette('troubleshooting')"
+fit_zinb2_corr <- glmmTMB(N ~ 1 +                                                  # Null
+                            Location +                                             # Location
+                            time_cts +                                             # Continuous time variable
+                            (1|Specie.Code:Location) +                             # Species-level intercept
+                            (time_cts + 0|Specie.Code:Location) +
+                            ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +   # Autocorrelation across time
+                            offset(log(tot_net_hours)),
+                          family = nbinom2,
+                          ziformula = ~1,
+                          data = ecuador)
+```
+
+
+## Evalute model fit
+
+```{r Compare models, echo = FALSE}
+
+# AIC
+aic <- AICtab(fit_pois,
+              fit_pois_corr, 
+              fit_zip, 
+              #fit_zip_corr,
+              #fit_nb1,
+              #fit_nb1_corr,
+              fit_nb2, 
+              fit_nb2_corr, 
+              fit_zinb2,
+              #fit_zinb2_corr # note: fit_zinb2_corr throws warning
+              base = TRUE,
+              mnames = c("Poisson",
+                         "Poisson AR-1",
+                         "Zero-inflated Poisson",
+                         "Negative-binomial2",
+                         "Neg-binomial2 AR-1",
+                         "Zero-inflated binomial2"),
+              logLik = TRUE)
+
+# BIC
+bic <- BICtab(fit_pois,
+              fit_pois_corr, 
+              fit_zip, 
+              #fit_zip_corr,
+              #fit_nb1,
+              #fit_nb1_corr,
+              fit_nb2, 
+              fit_nb2_corr, 
+              fit_zinb2,
+              #fit_zinb2_corr # note: fit_zinb2_corr throws warning
+              base = TRUE,
+              mnames = c("Poisson",
+                         "Poisson AR-1",
+                         "Zero-inflated Poisson",
+                         "Negative-binomial2",
+                         "Neg-binomial2 AR-1",
+                         "Zero-inflated binomial2"),
+              logLik = TRUE)
+
+# aic <- data.frame(dAIC = aic$dAIC, df = aic$df)
+# 
+# rownames(aic) <- c("fit_nb2_corr",
+#                    "fit_zinb2_corr",
+#                    "fit_zinb2", 
+#                    #"fit_zip_corr", 
+#                    "fit_nb2",
+#                    "fit_pois_corr", 
+#                    "fit_zip", 
+#                    "fit_pois")
+kable(aic, caption = "AIC for different models")
+
+# bic <- data.frame(dBIC = bic$dBIC, df = bic$df)
+# rownames(bic) <- c("fit_nb2_corr", "fit_nb2",
+#                    "fit_zinb2", #"fit_zip_corr", 
+#                    "fit_zinb2_corr",
+#                    "fit_pois_corr", "fit_zip", "fit_pois")
+kable(bic)
+```
+
+Save AIC table as .csv
+
+```{r}
+write.csv(aic, "aic_table.csv")
+write.csv(bic, "bic_table.csv")
+```
+
+
+
+## Best model 
+
+```{r Show best model specification, eval = F, include = TRUE, warning = FALSE}
+# This is the best model
+fit_nb2_corr <- glmmTMB(N ~ 1 +                                         # Intercept
+                          Location +                                    # Location
+                          time_cts +                                    # Continuous time variable
+                          (1|Specie.Code:Location) +                    # Species-level intercept
+                          (time_cts + 0|Specie.Code:Location) +         # Species-level slopes
+                          ar1(as.ordered(time_cts) + 0|Specie.Code) +   # Autocorrelation across time
+                          offset(log(tot_net_hours)),                   # Offset effort
+                        family = nbinom2,
+                        data = ecuador)
+
+```
+
+
+```{r}
+ranefsx <- ranef(fit_nb2_corr)
+ranefsx$cond$`Specie.Code:Location`
+ranefsx$cond$Specie.Code[,1:4]
+```
+
+
+Add (1|year)
+```{r}
+# This is the best model
+fit_nb2_corr.w.yr <- glmmTMB(N ~ 1 +                                         # Intercept
+                          Location +                                    # Location
+                          time_cts +                                    # Continuous time variable
+                          (1|year) +
+                          #(1|year:Location) +
+                          (1|Specie.Code:Location) +                    # Species-level intercept
+                          (time_cts + 0|Specie.Code:Location) +         # Species-level slopes
+                          ar1(as.ordered(time_cts) + 0|Specie.Code) +   # Autocorrelation across time
+                          offset(log(tot_net_hours)),                   # Offset effort
+                        family = nbinom2,
+                        data = ecuador)
+```
+
+```{r}
+
+x2 <- update(fit_nb2_corr, . ~ . + time_cts*Location)
+AICtab(fit_nb2_corr, x2)
+
+```
+
+
+```{r}
+fixef(fit_nb2_corr)
+fixef(fit_nb2_corr.w.yr)
+fixef(fit_nb2_corr.w.yr2)
+AICtab(fit_nb2_corr,fit_nb2_corr.w.yr, fit_nb2_corr.w.yr2)
+
+```
+
+
+Get coefficients and make table
+```{r, echo = FALSE}
+best_fit_tab <- as.data.frame(summary(fit_nb2_corr)$coefficients$cond)
+rownames(best_fit_tab) <- c("Intercept", "Location (MAIN)", "Location (MASE)", "Time")
+kable(best_fit_tab, caption = "Model output on original (log) scale")
+```
+
+```{r, echo = FALSE}
+best_fit_tab <- as.data.frame(summary(fit_nb2_corr)$coefficients$cond)
+rownames(best_fit_tab) <- c("Intercept", "Location (MAIN)", "Location (MASE)", "Time")
+best_fit_tab2 <- best_fit_tab
+
+# Point estimates
+best_fit_tab2$EstimateExp <- NA
+
+best_fit_tab2$EstimateExp[1] <- best_fit_tab2$Estimate[1]
+best_fit_tab2$EstimateExp[2] <- best_fit_tab2$Estimate[1] + best_fit_tab2$Estimate[2]
+best_fit_tab2$EstimateExp[3] <- best_fit_tab2$Estimate[1] + best_fit_tab2$Estimate[3]
+
+# SE estimates
+vcov <- matrix(unlist(vcov(fit_nb2_corr)), nrow = 4)
+
+best_fit_tab2$SE <- NA
+
+best_fit_tab2$SE[1] <- sqrt(vcov[1,1])
+best_fit_tab2$SE[2] <- sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2])
+best_fit_tab2$SE[3] <- sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3])
+
+# Lower bound & upper bound
+best_fit_tab2$LB <- round(exp(best_fit_tab2$EstimateExp - 1.96*best_fit_tab2$SE), 6)*1000
+best_fit_tab2$UB <- round(exp(best_fit_tab2$EstimateExp + 1.96*best_fit_tab2$SE), 6)*1000
+
+# Calculate confidence interval
+best_fit_tab2$CI <- paste0("(", best_fit_tab2$LB, ", ", best_fit_tab2$UB, ")")
+
+# Point Estimate
+best_fit_tab2$EstimateExp <- round(exp(best_fit_tab2$EstimateExp), 6) * 1000
+
+# Drop time effect row
+best_fit_tab2 <- best_fit_tab2[-4,]
+
+# Select point estimate and 95% CI columns
+best_fit_tab2 <- best_fit_tab2[,c(5,9)]
+
+# Format
+rownames(best_fit_tab2) <- c("Secondary forest (LLAV)", "Introduced forest (MAIN)", "Primary forest (MASE)")
+colnames(best_fit_tab2) <- c("Baseline captures per 1,000 net hours", "95% Confidence Interval")
+kable(best_fit_tab2, caption = "Transformed model estimates")
+```
+
+We estimate that the baseline (time = 0) capture rate per 1,000 net hours is 7.191 (95\% CI (5.383, 9.606)) in secondary forest, 5.820 (95\% CI (4.226, 8.015)) in introduced forest, and 4.423 (95\% CI (3.153, 6.206)) in primary forest. We estimate a 2.8\% (95\% CI (0.9\%, 4.6\%)) decrease in capture rate between years in all habitats. $\\$
+
+```{r Store standard errors, echo = FALSE, fig.height = 7.25}
+s1 <- TMB::sdreport(fit_nb2_corr$obj, getJointPrecision = TRUE, bias.correct = TRUE)
+s2 <- sqrt(s1$diag.cov.random)
+
+test <- solve(s1$jointPrecision)
+
+parameters <- fit_nb2_corr$obj$env$par
+parameters <- as.data.frame(parameters)
+parameters$names <- names(fit_nb2_corr$obj$env$par)
+parameters$sd <- sqrt(diag(test))
+
+parameters$variable <- NA
+parameters$variable[1:162] <- c("(Intercept)","LocationMAIN","LocationMASE","time_cts", rep("Intercept", 79), rep("time_cts", 79))
+
+parameters$spp <- NA
+parameters$spp[1:162] <- c(rep("Population", 4), rownames(ranef(fit_nb2_corr)[[1]]$`Specie.Code:Location`), rownames(ranef(fit_nb2_corr)[[1]]$`Specie.Code:Location`))
+
+parameters$aggregate_sd <- NA
+
+for (i in 0:78)
+{
+  parameters$aggregate_sd[84+i] <- sqrt(test[4,4] + test[84+i,84+i] + 2*test[84+i,4])
+}
+
+subset_for_merge <- parameters[84:162,c("spp","aggregate_sd")]
+colnames(subset_for_merge)[1] <- "id"
+
+sd_int   <- s2[1:79]
+sd_slope <- s2[80:158]
+
+slopes <- ranef(fit_nb2_corr)[[1]]$`Specie.Code:Location` # 79 x 2
+#ranef(fit_nb2_corr)[[1]]$`Specie.Code` # 38 x 33
+# 79 * 2 + 38 * 33
+
+s0 <- fit_nb2_corr$sdr
+
+                       #time coefficient                      # ? individual time slope?
+slopes$time_cts_tot <- summary(fit_nb2_corr)[[6]]$cond[4,1] + slopes$time_cts
+slopes$time_sd  <- sd_slope
+slopes$time_lb  <- slopes$time_cts_tot - 1.96*slopes$time_sd
+slopes$time_ub  <- slopes$time_cts_tot + 1.96*slopes$time_sd
+
+slopes$spp <- substring(rownames(slopes), 1, 4)
+slopes$loc <- substring(rownames(slopes), 6, 9)
+slopes$id <- rownames(slopes)
+
+slopes.unique <- slopes[!duplicated(slopes$spp),]
+
+slopes$spp2 <- ordered(slopes$spp, levels = slopes.unique[order(slopes.unique$time_cts_tot),]$spp)
+slopes$id2 <- ordered(slopes$id, levels = slopes[order(slopes$time_cts_tot),]$id)
+
+slopes <- left_join(slopes, subset_for_merge, by = "id")
+
+# calculate lower (lb) and upper (ub) bound of CIs
+## NOTE: use slopes$time_cts_tot (as shown and as was in orig script)
+###      NOTE time_cts
+slopes$time_lb2  <- slopes$time_cts_tot - 1.96*slopes$aggregate_sd
+slopes$time_ub2  <- slopes$time_cts_tot + 1.96*slopes$aggregate_sd
+
+# ggplot(data = slopes, aes(x = time_cts, y = slopes$spp2)) +
+#   geom_point(aes(x = time_cts, y = spp2)) +
+#   geom_segment(aes(x = time_lb, xend = time_ub, y = spp2, yend = spp2)) +
+#   facet_grid(~loc) +
+#   geom_vline(aes(xintercept = 0, color = "No Change")) +
+#   geom_vline(aes(xintercept = summary(fit_nb2_corr)[[6]]$cond[4,1], color = "Population-level estimate")) +
+#   #geom_rect(aes(xmin = -0.016779 - 1.96*0.003354, xmax = -0.016779 + 1.96*0.003354, ymin = -Inf, ymax = Inf), fill = "blue", alpha = 0.2) +
+#   xlab("Species-level time coefficient \n") + ylab("Species Code") +
+#   #scale_colour_manual(values = c("Population-level estimate" = "blue")) +
+#   scale_colour_manual(values =c("No Change" = "red", "Population-level estimate" = "blue")) +
+#   #scale_fill_manual(values = c("blue" = "blue")) +
+#   theme(panel.spacing = unit(1, "lines")) +
+#   theme(legend.position = "bottom", legend.title = element_blank(), legend.background = element_blank(), legend.box.background = element_rect(colour = "black"))
+
+# habita labels for plots
+## main labels
+
+# habitat_labels <- c("Secondary Forest\n(LLAV)", "Primary Forest\n(MASE)", "Introduced Forest\n(MAIN)")
+#habitat_labels <- c("Montane shrubland\n(SHRUB)", "Native Forest\n(NATIVE)", "Mixed Native & Introduced Forest\n(MIXED)")
+habitat_labels <- c("SHRUB", "NATIVE", "MIXED")
+
+## vector names
+# names(habitat_labels) <- c("LLAV","MASE", "MAIN")
+names(habitat_labels) <- c("SHRUB","NATIVE", "MIXED")
+
+spp_trt$Species_SciName <- gsub("[\\(\\)]", "", regmatches(spp_trt$Species, gregexpr("\\(.*?\\)", spp_trt$Species)))
+spp_trt$Species_SciName <- paste0(substr(spp_trt$Species_SciName,1,1),". ", sub("^\\S+\\s+", '', spp_trt$Species_SciName))
+i.col <- which(colnames(spp_trt) %in% c("Specie.Code", "Species_SciName"))
+spp_trt[,i.col[1]] <- as.character(spp_trt[,i.col[1]])
+slopes.unique <- left_join(slopes.unique, spp_trt[,i.col], by = c("spp" = "Specie.Code"))
+slopes <- left_join(slopes, spp_trt[,i.col], by = c("spp" = "Specie.Code"))
+slopes$Species_SciName2 <- ordered(slopes$Species_SciName, levels = slopes.unique[order(slopes.unique$time_cts),]$Species_SciName)
+
+slopes$Sig <- ifelse(slopes$time_ub2 < 0, "Significant", "Not Significant")
+
+
+```
+
+Site descriptions from MS
+"We placed three sampling sites in areas with unique habitat types. 
+These included: 
+(1) native, mature secondary, subtropical moist broadleaf forest (NATIVE) located in Mazán; 
+(2) mixed native and non-native forest (MIXED) also located in Mazán; and
+(3) native montane shrubland (SHRUB) located in Llaviuco Valley."
+
+
+Change labels from those used in earlier drafts of MS 
+```{r}
+slopes$loc.orig <- slopes$loc
+
+slopes$loc <- gsub("LLAV","SHRUB",slopes$loc)
+slopes$loc <- gsub("MAIN","MIXED",slopes$loc)
+slopes$loc <- gsub("MASE","NATIVE",slopes$loc)
+
+# set order
+slopes$loc <- factor(slopes$loc, levels = c("NATIVE","MIXED","SHRUB"))
+slopes$loc <- factor(slopes$loc, levels = c("SHRUB","MIXED","NATIVE"))
+```
+
+```{r}
+summary(slopes$loc)
+```
+
+
+
+Save slopes
+
+```{r}
+write.csv(slopes, file = "species_specific_slops.csv")
+```
+
+
+```{r}
+slopes
+```
+
+
+# Plots
+
+
+## Plot 1: 
+
+x = time_cts_tot
+
+next plot uses time_cts !!!
+
+
+
+```{r}
+ggplot(data = slopes, 
+       aes(x = time_cts_tot, 
+           y = spp2)) +
+  geom_point(aes(x = time_cts_tot, 
+                 y = spp2), 
+             color = "black", 
+             size = 1.5) +
+  geom_point(aes(x = time_cts_tot,   # make significant spp red
+                 y = spp2), 
+             color = "red", 
+             size = 1.5, 
+             data = subset(slopes, Sig == "Significant")) +
+  geom_segment(aes(x = time_lb2, 
+                   xend = time_ub2, 
+                   y = spp2, 
+                   yend = spp2)) +
+  geom_segment(aes(x = time_lb2, xend = time_ub2, 
+                   y = spp2, yend = spp2), 
+               color = "red", 
+               data = subset(slopes, Sig == "Significant")) +
+  facet_grid(~loc, 
+             #labeller = labeller(loc = habitat_labels)
+             ) +
+  geom_vline(aes(xintercept = 0, 
+                 color = "No Change", 
+                 linetype = "No Change"), 
+             size = 1) +
+  geom_vline(aes(xintercept = summary(fit_nb2_corr)[[6]]$cond[4,1],
+                 color = "Population-level estimate", 
+                 linetype = "Population-level estimate"), size = 1) +
+  annotate("rect", xmin= -0.04758552, xmax= -0.00882848, 
+           ymin=-Inf, ymax=Inf, 
+           alpha=0.2, fill="blue") +
+  xlab("Species-level time coefficient \n") + 
+  ylab("Species Code") +
+  scale_colour_manual(name = "Guide", 
+                      values = c("No Change" = "black", "Population-level estimate" = "blue")) +
+  scale_linetype_manual(name = "Guide", 
+                        values = c("No Change" = "dashed", "Population-level estimate" = "solid")) +
+  theme(panel.spacing = unit(1, "lines")) + 
+  theme_bw() +
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(), 
+        legend.background = element_blank(), 
+        legend.box.background = element_rect(colour = "black")) + 
+  theme(panel.spacing.x = unit(1, "lines"))
+```
+
+
+
+
+
+
+### Plot with species names 
+
+The next page has the same figure but with species names instead of species codes on the y-axis. I wasn't sure what your preference would be since the species codes look tidier, but the species names are more immediately informative. There is also an explanation of interpreting this figure on the next page.
+
+original code from Emily had x = time_cts, not x = time_cts_tot
+
+
+```{r, echo = FALSE, fig.height = 7.25}
+figure1 <- ggplot(data = slopes, 
+       aes(#x = time_cts, 
+           x = time_cts_tot,
+           y = Species_SciName2)) +
+  geom_point(aes(#x = time_cts, 
+           x = time_cts_tot,
+                 y = Species_SciName2), 
+             color = "black", size = 1.5) +
+  geom_point(aes(#x = time_cts, 
+           x = time_cts_tot,
+                 y = Species_SciName2), 
+             color = "red", size = 1.5, 
+             data = subset(slopes, 
+                           Sig == "Significant")) +
+  geom_segment(aes(x = time_lb2, 
+                   xend = time_ub2, 
+                   y = Species_SciName2, 
+                   yend = Species_SciName2)) +
+  geom_segment(aes(x = time_lb2,
+                   xend = time_ub2, 
+                   y = Species_SciName2, 
+                   yend = Species_SciName2),
+               color = "red", 
+               data = subset(slopes, Sig == "Significant")) +
+  facet_grid(~loc, 
+            # labeller = labeller(loc = habitat_labels)
+             ) +
+  geom_vline(aes(xintercept = 0, 
+                 color = "No Change",
+                 linetype = "No Change"), size = 1) +
+  geom_vline(aes(xintercept = summary(fit_nb2_corr)[[6]]$cond[4,1], 
+                 color = "Population-level estimate", 
+                 linetype = "Population-level estimate"), 
+             size = 1) +
+  annotate("rect", xmin= -0.04758552, xmax= -0.00882848, ymin=-Inf, ymax=Inf, alpha=0.2, fill="blue") +
+  xlab("Species-level time coefficient \n") + 
+  ylab("Species Code") +
+  scale_colour_manual(name = "Guide", 
+                      values = c("No Change" = "black", 
+                                 "Population-level estimate" = "blue")) +
+  scale_linetype_manual(name = "Guide", 
+                        values = c("No Change" = "dashed", 
+                                   "Population-level estimate" = "solid")) +
+  theme(panel.spacing = unit(1, "lines")) + 
+  theme_bw() +
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(), 
+        legend.background = element_blank(), 
+        legend.box.background = element_rect(colour = "black")) + 
+  theme(panel.spacing.x = unit(1, "lines")) +
+  theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=14,
+                                face="bold"))
+figure1
+```
+
+
+```{r}
+ggsave(plot = figure1, file = "figure1.png")
+```
+
+
+
+
+The above figure shows the estimated time effect for each species as well as the population-level time effect (i.e. the fitted slope). The population-level time effect is -0.0282; this is on the log scale because we used the negative binomial distribution. To obtain a meaningful value, we exponentiate this coefficient to obtain $e^{-0.0282} = 0.972$. This means that the population, as a whole, is estimated to decrease by 2.8\% between years (i.e. 2006 to 2007, 2007 to 2008, etc.). The light blue shaded region shows the 95\% confidence interval for the population-level time effect (-0.0476, -0.0088). This transforms to (0.954, 0.991). A figure with the transformed values is on page 9 and a table with transformed values is on page 10. $\\$
+
+## Plot 
+
+```{r, echo = FALSE}
+slopes2 <- slopes %>% 
+  dplyr::select(time_cts, time_lb2, time_ub2, Species_SciName2, loc) %>% 
+  mutate(CI = paste0("(",round(time_lb2,3),", ", round(time_cts,3), ", ", round(time_ub2,3), ")")) %>%
+  dplyr::select(CI, Species_SciName2, loc) %>%
+  group_by(Species_SciName2) %>% 
+  spread(loc, CI)
+colnames(slopes2) <- c("Species", "Secondary forest (LLAV)", "Introduced forest (MAIN)", "Primary forest (MASE)")
+slopes2$`Secondary forest (LLAV)` <- ifelse(is.na(slopes2$`Secondary forest (LLAV)`) == TRUE, " ", slopes2$`Secondary forest (LLAV)`)
+slopes2$`Introduced forest (MAIN)` <- ifelse(is.na(slopes2$`Introduced forest (MAIN)`) == TRUE, " ", slopes2$`Introduced forest (MAIN)`)
+slopes2$`Primary forest (MASE)` <- ifelse(is.na(slopes2$`Primary forest (MASE)`) == TRUE, " ", slopes2$`Primary forest (MASE)`)
+kable(slopes2, caption = "Log scale species-level estimates \n (95% CI lower bound, estimate, 95% CI upper bound)")
+```
+
+
+
+Plot - ....
+
+```{r, echo = FALSE, fig.height = 7.0}
+# original in script from Emily
+# slopes$time_exp <- exp(slopes$time_cts)
+# slopes$lb2_exp <- exp(slopes$time_lb2)
+# slopes$ub2_exp <- exp(slopes$time_ub2)
+
+slopes$time_exp <- exp(slopes$time_cts_tot)
+slopes$lb2_exp <- exp(slopes$time_lb2)
+slopes$ub2_exp <- exp(slopes$time_ub2)
+time_cts_tot
+
+figure01 <- ggplot(data = slopes, 
+       aes(x = time_exp, 
+           y = slopes$Species_SciName2)) +
+  geom_point(aes(x = time_exp, 
+                 y = Species_SciName2), 
+             color = "black", 
+             size = 1.5) +
+  geom_point(aes(x = time_exp, 
+                 y = Species_SciName2), color = "red", size = 1.5, data = subset(slopes, Sig == "Significant")) +
+  geom_segment(aes(x = lb2_exp, xend = ub2_exp, y = Species_SciName2, yend = Species_SciName2)) +
+  geom_segment(aes(x = lb2_exp, xend = ub2_exp, y = Species_SciName2, yend = Species_SciName2), color = "red", data = subset(slopes, Sig == "Significant")) +
+  facet_grid(~loc, labeller = labeller(loc = habitat_labels)) +
+  geom_vline(aes(xintercept = 1, color = "No Change", linetype = "No Change"), size = 1) +
+  geom_vline(aes(xintercept = exp(summary(fit_nb2_corr)[[6]]$cond[4,1]), color = "Population-level estimate", linetype = "Population-level estimate"), size = 1) +
+  annotate("rect", xmin = exp(-0.04758552), xmax = exp(-0.00882848), ymin=-Inf, ymax=Inf, alpha=0.2, fill="blue") +
+  xlab("Species-level time coefficient \n") + ylab("Species Code") +
+  scale_colour_manual(name = "Guide", values = c("No Change" = "black", "Population-level estimate" = "blue")) +
+  scale_linetype_manual(name = "Guide", values = c("No Change" = "dashed", "Population-level estimate" = "solid")) +
+  theme(panel.spacing = unit(1, "lines")) + theme_bw() +
+  theme(legend.position = "bottom", legend.title = element_blank(), legend.background = element_blank(), legend.box.background = element_rect(colour = "black")) + theme(panel.spacing.x = unit(1, "lines"))+
+  theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=14,
+                                face="bold"))
+
+
+figure01
+```
+
+
+Save plot
+```{r}
+scaling <- 0.65
+ggsave(plot = figure01, file = "figure01_species_slopes.png",height = 11*scaling, width = 9*scaling)
+```
+
+
+
+The points and bands correspond to species-level estimates and 95% confidence intervals, respectively. Black points and bands denote species with statistically non-significant trends and red points and bands denote species with statistically significant trends. All species-level point estimates indicate declining capture rates. Out of 70 unique species, 38 met the inclusion criteria. Of these, 3 have significant trends; these species include the mountain velvetbreast (\textit{Lafresnaya lafresnayi}), sapphire-vented puffleg (\textit{Eriocnemis luciani}), and black-tailed trainbearer (\textit{Lesbia victoriae}). The values can be interpreted as percent change in capture rate; a value of 0.95 means that each successive year will have a capture rate that is 95\% the previous capture rate (or, in other words, the capture rate will decrease by 5\% from one year to the next). 
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Slopes table
+
+```{r, echo = FALSE}
+slopes3 <- slopes %>% 
+  dplyr::select(time_exp, lb2_exp, ub2_exp, Species_SciName2, loc) %>% 
+  mutate(CI = paste0("(",round(lb2_exp,3),", ", round(time_exp,3), ", ", round(ub2_exp,3), ")")) %>%
+  dplyr::select(CI, Species_SciName2, loc) %>%
+  group_by(Species_SciName2) %>% 
+  spread(loc, CI)
+colnames(slopes3) <- c("Species", 
+                       "SHRUB",  #
+                       "MIXED", #
+                       "NATIVE")    #
+
+# slopes3$`Secondary forest (LLAV)` <- ifelse(is.na(slopes3$`Secondary forest (LLAV)`) == TRUE,
+#                                             " ", 
+#                                             slopes3$`Secondary forest (LLAV)`)
+# slopes3$`Introduced forest (MAIN)` <- ifelse(is.na(slopes3$`Introduced forest (MAIN)`) == TRUE, 
+#                                              " ", 
+#                                              slopes3$`Introduced forest (MAIN)`)
+# slopes3$`Primary forest (MASE)` <- ifelse(is.na(slopes3$`Primary forest (MASE)`) == TRUE, 
+#                                           " ", 
+#                                           slopes3$`Primary forest (MASE)`)
+
+
+slopes3$SHRUB <- ifelse(is.na(slopes3$SHRUB) == TRUE,
+                                            " ", 
+                                            slopes3$SHRUB)
+slopes3$MIXED <- ifelse(is.na(slopes3$MIXED) == TRUE, 
+                                             " ", 
+                                             slopes3$MIXED)
+slopes3$NATIVE <- ifelse(is.na(slopes3$NATIVE) == TRUE, 
+                                          " ", 
+                                          slopes3$NATIVE)
+
+kable(slopes3, caption = "Transformed species-level estimates (95% CI lower bound, estimate, 95% CI upper bound)")
+```
+
+The population-level estimate is (0.954, 0.972, 0.991). That is, we estimate a 2.8\% decrease in capture rates between years (95\% CI: 0.9-4.6\%).
+
+\newpage
+
+
+
+# Plots of species-specifc trends (?)
+
+```{r Predict species trend, echo = FALSE}
+# Extract fixed effects
+slopes$int <-  rep(summary(fit_nb2_corr)[[6]]$cond[1,1], dim(slopes)[1])
+slopes$main <- rep(summary(fit_nb2_corr)[[6]]$cond[2,1], dim(slopes)[1])
+slopes$mase <- rep(summary(fit_nb2_corr)[[6]]$cond[3,1], dim(slopes)[1])
+slopes$time <- rep(summary(fit_nb2_corr)[[6]]$cond[4,1], dim(slopes)[1])
+
+predict_glmmtmb <- function(spp_code,species)
+{
+  # Set working species
+  spp.working <- spp_code
+  
+  # Subset data relevant to working species
+  subset <- ecuador[which(ecuador$Specie.Code == spp.working),]
+  df.working <- slopes[which(slopes$spp == spp.working),]
+  
+  # Create time vector
+  x <- 1:33/3
+  
+  # Calculate smoothed trend for LLAV
+  y.llav <- exp(df.working[which(df.working$loc == "SHRUB"),]$int + 
+                  df.working[which(df.working$loc == "SHRUB"),]$`(Intercept)` +  
+                  (df.working[which(df.working$loc == "SHRUB"),]$time +
+                     df.working[which(df.working$loc == "SHRUB"),]$time_cts)*x)*1000
+  
+  # Calculate smoothed trend for MAIN
+  y.main <- exp(df.working[which(df.working$loc == "MIXED"),]$int +
+                  df.working[which(df.working$loc == "MIXED"),]$main + 
+                  df.working[which(df.working$loc == "MIXED"),]$`(Intercept)` +
+                  (df.working[which(df.working$loc == "MIXED"),]$time + 
+                     df.working[which(df.working$loc == "MIXED"),]$time_cts)*x)*1000
+  
+  # Calculate smoothed trend for MASE
+  y.mase <- exp(df.working[which(df.working$loc == "NATIVE"),]$int +
+                df.working[which(df.working$loc == "NATIVE"),]$mase + 
+                df.working[which(df.working$loc == "NATIVE"),]$`(Intercept)` +
+                (df.working[which(df.working$loc == "NATIVE"),]$time + 
+                   df.working[which(df.working$loc == "NATIVE"),]$time_cts)*x)*1000
+  
+  #fit_nb2_corr$frame$`offset(log(tot_net_hours))`
+  
+  if (length(y.llav) == 0)
+  {
+    y.llav <- rep(NA,33)
+  }
+
+  if (length(y.main) == 0)
+  {
+    y.main <- rep(NA,33)
+  }
+
+  if (length(y.mase) == 0)
+  {
+    y.mase <- rep(NA,33)
+  }
+
+  # Create response matrix
+  y <- matrix(nrow = 33*3, ncol = 3)
+  y <- as.data.frame(y)
+  colnames(y) <- c("time_cts","y","Location")
+  
+  # Fill response matrix
+  y$time_cts <- rep(1:33/3,3)
+  y$y <- c(y.llav, y.main, y.mase)
+  y$Location <- c(rep("SHRUB", 33), rep("MIXED", 33), rep("NATIVE", 33))
+  y$Location <- factor(y$Location, levels = c("SHRUB", "MIXED", "NATIVE"))
+  y$Specie.Code <- factor(rep(spp.working, 33*3), levels = levels(ecuador$Specie.Code))
+  y$tot_net_hours <- rep(1000, 33*3)
+  
+  y$response <- predict(fit_nb2_corr, 
+                        newdata = y, 
+                        type = c("response"), 
+                        se.fit = TRUE, 
+                        allow.new.levels = TRUE)$fit
+  
+  y$se <- predict(fit_nb2_corr, 
+                  newdata = y, 
+                  type = c("response"), 
+                  se.fit = TRUE, 
+                  allow.new.levels = TRUE)$se.fit
+  
+  y$lower <- y$response - 2*y$se
+  y$upper <- y$response + 2*y$se
+
+  # Plot LLAV
+  LLAV <- ggplot(data = subset[which(subset$Location == "SHRUB"),], 
+                 aes(x = subset[which(subset$Location == "SHRUB"),]$time_cts,
+                     y = subset[which(subset$Location == "SHRUB"),]$caps_per_1K_nethours)) + 
+    geom_point(aes(x = subset[which(subset$Location == "SHRUB"),]$time_cts, 
+                   y = subset[which(subset$Location == "v"),]$caps_per_1K_nethours)) + 
+    geom_line(data = y[which(y$Location == "SHRUB"),], 
+              aes(x = time_cts, 
+                  y = response), 
+              col = "red") +
+    geom_ribbon(data = y[which(y$Location == "SHRUB"),], 
+                aes(x = 1:33/3, 
+                    ymin = lower, 
+                    ymax = upper), 
+                fill = "red", 
+                alpha = 0.1, 
+                inherit.aes = FALSE, 
+                show.legend = FALSE) +
+    geom_line(data = y[which(y$Location == "SHRUB"),], 
+              aes(x = time_cts, y = y), col = "blue") +
+    xlab("Year") + 
+    ylab("Captures per 1000 net hours") + 
+    ggtitle("SHRUB") + 
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  # Plot MAIN
+  MAIN <- ggplot(data = subset[which(subset$Location == "MIXED"),], 
+                 aes(x = subset[which(subset$Location == "MIXED"),]$time_cts, 
+                     y = subset[which(subset$Location == "MIXED"),]$caps_per_1K_nethours)) + 
+    geom_point(aes(x = subset[which(subset$Location == "MIXED"),]$time_cts, 
+                   y = subset[which(subset$Location == "MIXED"),]$caps_per_1K_nethours)) + 
+    geom_line(data = y[which(y$Location == "MIXED"),], aes(x = time_cts, y = response), col = "red") +
+    geom_ribbon(data = y[which(y$Location == "MIXED"),], aes(x = 1:33/3, ymin = lower, ymax = upper), fill = "red", alpha = 0.1, inherit.aes = FALSE, show.legend = FALSE) +
+    geom_line(data = y[which(y$Location == "MIXED"),], aes(x = time_cts, y = y), col = "blue") +
+    xlab("Year") + ylab("Captures per 1000 net hours") + ggtitle("MIXED") + theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5))
+    
+  # Plot MASE
+  MASE <- ggplot(data = subset[which(subset$Location == "NATIVE"),], aes(x = subset[which(subset$Location == "NATIVE"),]$time_cts, y = subset[which(subset$Location == "NATIVE"),]$caps_per_1K_nethours)) + 
+    geom_point(aes(x = subset[which(subset$Location == "NATIVE"),]$time_cts, y = subset[which(subset$Location == "NATIVE"),]$caps_per_1K_nethours)) + 
+    geom_line(data = y[which(y$Location == "NATIVE"),], aes(x = time_cts, y = response), col = "red") +
+    geom_ribbon(data = y[which(y$Location == "NATIVE"),], aes(x = 1:33/3, ymin = lower, ymax = upper), fill = "red", alpha = 0.1, inherit.aes = FALSE, show.legend = FALSE) +
+    geom_line(data = y[which(y$Location == "NATIVE"),], aes(x = time_cts, y = y), col = "blue") +
+    xlab("Year") + ylab("Captures per 1000 net hours") + ggtitle("NATIVE") + theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5)) 
+    
+  # Arrange plots
+  figure <- grid.arrange(arrangeGrob(LLAV,# + xlab(NULL),# + ylab(NULL), 
+                           MAIN + ylab(NULL),#xlab(NULL),# + ylab(NULL),  
+                           MASE + ylab(NULL),#xlab(NULL),# + ylab(NULL),
+                           nrow = 1,
+                           top = textGrob(paste(species,"\n",sep = ""), vjust = 1, gp = gpar(fontface = "bold", cex = 1.5))))#),
+                           #left = textGrob("Captures per 1000 net hours \n", rot = 90, vjust = 1),
+                           #bottom = textGrob("Time point")))
+  
+  return(figure)
+}
+```
+
+\newpage 
+
+## Regression plots
+
+There were 3 species with significant trends in at least one habitat. The following 2 pages plot each of these species' observed and predicted capture rates. No species had significant trends in more than one habitat.
+
+The blue line is a smoothed predicted trend. The red line tries to account for session-to-session variability (e.g. good session for catching birds/bad session for catching birds). The red shaded region shows the 95\% confidence interval for this trend. The black points show the observed capture rates standardized to be in captures per 1000 net hours. When there are no points in a habitat it means the species was not captured there. In these cases, the model still tries to estimate what the trend would be if the species had been in that habitat. It uses information about how that habitat is doing on average and how that species is doing on average to develop a conservative estimate of trend; these estimates are not significant because there are no data to support them.
+
+By plotting the data and predicted model fit, we can visually assess how well the model is fitting the data. If something is amiss, we could further investigate and consider whether the model is providing reasonable estimates of trend. To my eye, it fits the data quite well.
+
+
+```{r}
+png(filename = "ERLU.png", width = 2000, height = 1250, res =300)
+erlu <- predict_glmmtmb("ERLU", "E. luciani")
+grid.draw(erlu)
+dev.off()
+```
+
+
+```{r Species predict function, echo = FALSE, warning = FALSE, fig.height = 4.15, cache = TRUE}
+
+# png(filename = "CIPL.png", width = 2000, height = 1250, res =300)
+# cipl <- predict_glmmtmb("CIPL", "C. platensis")
+# grid.draw(cipl)
+# dev.off()
+# 
+# png(filename = "BACO.png", width = 2000, height = 1250, res =300)
+# baco <- predict_glmmtmb("BACO", "B. coronatus")
+# grid.draw(baco)
+# dev.off()
+# 
+# png(filename = "BANI.png", width = 2000, height = 1250, res =300)
+# bani <- predict_glmmtmb("BANI", "B. nigrocristatus")
+# grid.draw(bani)
+# dev.off()
+
+
+png(filename = "AGCU.png", width = 2000, height = 1250, res =300)
+agcu <- predict_glmmtmb("AGCU", "A. cupripennis")
+grid.draw(agcu)
+dev.off()
+
+png(filename = "AMHO.png", width = 2000, height = 1250, res =300)
+amho <- predict_glmmtmb("AMHO", "A. holosericeus")
+grid.draw(amho)
+dev.off()
+
+png(filename = "ANIG.png", width = 2000, height = 1250, res =300)
+anig <- predict_glmmtmb("ANIG", "A. igniventris")
+grid.draw(anig)
+dev.off()
+
+png(filename = "ANPA.png", width = 2000, height = 1250, res =300)
+anpa <- predict_glmmtmb("ANPA", "A. parulus")
+grid.draw(anpa)
+dev.off()
+
+png(filename = "ATLA.png", width = 2000, height = 1250, res =300)
+atla <- predict_glmmtmb("ATLA", "A. latinuchus")
+grid.draw(atla)
+dev.off()
+
+png(filename = "BACO.png", width = 2000, height = 1250, res =300)
+baco <- predict_glmmtmb("BACO", "B. coronatus")
+grid.draw(baco)
+dev.off()
+
+png(filename = "BANI.png", width = 2000, height = 1250, res =300)
+bani <- predict_glmmtmb("BANI", "B. nigrocristatus")
+grid.draw(bani)
+dev.off()
+
+png(filename = "BUTO.png", width = 2000, height = 1250, res =300)
+buto <- predict_glmmtmb("BUTO", "B. torquatus")
+grid.draw(buto)
+dev.off()
+
+png(filename = "CAIN.png", width = 2000, height = 1250, res =300)
+cain <- predict_glmmtmb("CAIN", "C. inornata")
+grid.draw(cain)
+dev.off()
+
+png(filename = "CIPL.png", width = 2000, height = 1250, res =300)
+cipl <- predict_glmmtmb("CIPL", "C. platensis")
+grid.draw(cipl)
+dev.off()
+
+png(filename = "COCI.png", width = 2000, height = 1250, res =300)
+coci <- predict_glmmtmb("COCI", "C. cinereum")
+grid.draw(coci)
+dev.off()
+
+png(filename = "COIR.png", width = 2000, height = 1250, res =300)
+coir <- predict_glmmtmb("COIR", "C. iris")
+grid.draw(coir)
+dev.off()
+
+png(filename = "CRAN.png", width = 2000, height = 1250, res =300)
+cran <- predict_glmmtmb("CRAN", "C. antisiensis")
+grid.draw(cran)
+dev.off()
+
+png(filename = "DICY.png", width = 2000, height = 1250, res =300)
+dicy <- predict_glmmtmb("DICY", "D. cyanea")
+grid.draw(dicy)
+dev.off()
+
+png(filename = "DIHU.png", width = 2000, height = 1250, res =300)
+dihu <- predict_glmmtmb("DIHU", "D. humeralis")
+grid.draw(dihu)
+dev.off()
+
+png(filename = "DUTA.png", width = 2000, height = 1250, res =300)
+duta <- predict_glmmtmb("DUTA", "D. taeniata")
+grid.draw(duta)
+dev.off()
+
+png(filename = "ERLU.png", width = 2000, height = 1250, res =300)
+erlu <- predict_glmmtmb("ERLU", "E. luciani")
+grid.draw(erlu)
+dev.off()
+
+png(filename = "ERVE.png", width = 2000, height = 1250, res =300)
+erve <- predict_glmmtmb("ERVE", "E. vestitus")
+grid.draw(erve)
+dev.off()
+
+png(filename = "GRRU.png", width = 2000, height = 1250, res =300)
+grru <- predict_glmmtmb("GRRU", "G. rufula")
+grid.draw(grru)
+dev.off()
+
+png(filename = "HEGU.png", width = 2000, height = 1250, res =300)
+hegu <- predict_glmmtmb("HEGU", "H. gularis")
+grid.draw(hegu)
+dev.off()
+
+png(filename = "HESU.png", width = 2000, height = 1250, res =300)
+hesu <- predict_glmmtmb("HESU", "H. superciliaris")
+grid.draw(hesu)
+dev.off()
+
+png(filename = "HEVI.png", width = 2000, height = 1250, res =300)
+hevi <- predict_glmmtmb("HEVI", "H. viola")
+grid.draw(hevi)
+dev.off()
+
+png(filename = "LALA.png", width = 2000, height = 1250, res =300)
+lala <- predict_glmmtmb("LALA", "L. lafresnayi")
+grid.draw(lala)
+dev.off()
+
+png(filename = "LEVI.png", width = 2000, height = 1250, res =300)
+levi <- predict_glmmtmb("LEVI", "L. victoriae")
+grid.draw(levi)
+dev.off()
+
+png(filename = "MASQ.png", width = 2000, height = 1250, res =300)
+masq <- predict_glmmtmb("MASQ", "M. squamiger")
+grid.draw(masq)
+dev.off()
+
+png(filename = "MEBA.png", width = 2000, height = 1250, res =300)
+meba <- predict_glmmtmb("MEBA", "M. baroni")
+grid.draw(meba)
+dev.off()
+
+png(filename = "METY.png", width = 2000, height = 1250, res =300)
+mety <- predict_glmmtmb("METY", "M. tyrianthina")
+grid.draw(mety)
+dev.off()
+
+png(filename = "MYME.png", width = 2000, height = 1250, res =300)
+myme <- predict_glmmtmb("MYME", "M. melanocephalus")
+grid.draw(myme)
+dev.off()
+
+png(filename = "OCCI.png", width = 2000, height = 1250, res =300)
+occi <- predict_glmmtmb("OCCI", "O. cinnamomeiventris")
+grid.draw(occi)
+dev.off()
+
+png(filename = "OCFR.png", width = 2000, height = 1250, res =300)
+ocfr <- predict_glmmtmb("OCFR", "O. frontalis")
+grid.draw(ocfr)
+dev.off()
+
+png(filename = "PTCY.png", width = 2000, height = 1250, res =300)
+ptcy <- predict_glmmtmb("PTCY", "P. cyanopterus")
+grid.draw(ptcy)
+dev.off()
+
+png(filename = "SCLA.png", width = 2000, height = 1250, res =300)
+scla <- predict_glmmtmb("SCLA", "S. latrans")
+grid.draw(scla)
+dev.off()
+
+png(filename = "SYAZ.png", width = 2000, height = 1250, res =300)
+syaz <- predict_glmmtmb("SYAZ", "S. azarae")
+grid.draw(syaz)
+dev.off()
+
+png(filename = "TAVA.png", width = 2000, height = 1250, res =300)
+tava <- predict_glmmtmb("TAVA", "T. vassorii")
+grid.draw(tava)
+dev.off()
+
+png(filename = "THFL.png", width = 2000, height = 1250, res =300)
+thfl <- predict_glmmtmb("THFL", "T. flammulatus")
+grid.draw(thfl)
+dev.off()
+
+png(filename = "THOR.png", width = 2000, height = 1250, res =300)
+thor <- predict_glmmtmb("THOR", "T. ornata")
+grid.draw(thor)
+dev.off()
+
+png(filename = "TRSO.png", width = 2000, height = 1250, res =300)
+trso <- predict_glmmtmb("TRSO", "T. solstitialis")
+grid.draw(trso)
+dev.off()
+
+png(filename = "ZOCA.png", width = 2000, height = 1250, res =300)
+zoca <- predict_glmmtmb("ZOCA", "Z. capensis")
+grid.draw(zoca)
+dev.off()
+
+ecuador %>%
+  dplyr::select(Specie.Code, Species) %>%
+  unique()
+```
+
+```{r}
+png(filename = "Aggregate_Pop_Trends2.png", width = 2000, height = 1250, res =350)
+ecuador %>%
+  group_by(session, Location, year, time_cts, tot_net_hours) %>%
+  summarize(Tot_caps = sum(N)) %>%
+  mutate(Caps_per_1k_nh = Tot_caps/tot_net_hours * 1000) %>%
+  ggplot(aes(x = time_cts, y = Caps_per_1k_nh)) +
+  geom_line() +
+  facet_grid(.~Location) +
+  geom_smooth(method = "lm") +
+  theme_bw() +
+  scale_x_continuous(breaks = c(0:10 + 0.66), labels = 2006:2016) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab("Year") + ylab("Captures per 1K net hours")
+dev.off()
+
+png(filename = "Diet_Pop_Trends.png", width = 2000, height = 2000, res = 400)
+ecuador %>%
+  # filter(Diet == "I") %>%
+  group_by(session, Diet, Location, year, time_cts, tot_net_hours) %>%
+  summarize(Tot_caps = sum(N)) %>%
+  mutate(Caps_per_1k_nh = Tot_caps/tot_net_hours * 1000) %>%
+  ggplot(aes(x = time_cts, y = Caps_per_1k_nh)) +
+  geom_line() +
+  facet_grid(Diet~Location, scales = "free") +
+  geom_smooth(method = "lm") +
+  theme_bw() +
+  scale_x_continuous(breaks = c(0:10 + 0.66), labels = 2006:2016) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab("Year") + ylab("Captures per 1K net hours")
+dev.off()
+
+insectivores <- ecuador %>% filter(Diet == "I") %>% dplyr::select(Specie.Code) %>% unique()
+
+png(filename = "Diet_Pop_Trends_by_spp16-19.png", width = 6000, height = 6000, res = 800)
+ecuador %>%
+  filter(Diet == "I", Specie.Code %in% insectivores$Specie.Code[16:19]) %>%
+  group_by(session, Specie.Code, Location, year, time_cts, tot_net_hours) %>%
+  summarize(Tot_caps = sum(N)) %>%
+  mutate(Caps_per_1k_nh = Tot_caps/tot_net_hours * 1000) %>%
+  ungroup() %>%
+  group_by(Specie.Code) %>%
+  mutate(Label = paste0(Specie.Code, " (N = ", sum(Tot_caps), ")")) %>%
+  ggplot(aes(x = time_cts, y = Caps_per_1k_nh)) +
+  geom_line() +
+  facet_grid(Label~Location, scales = "free") +
+  geom_smooth(method = "lm") +
+  theme_bw() +
+  scale_x_continuous(breaks = c(0:10 + 0.66), labels = 2006:2016) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab("Year") + ylab("Captures per 1K net hours")
+dev.off()
+
+```
+
+
+
+## Sensitivity Analysis
+```{r, echo = FALSE, fig.height = 5}
+# ecuador0 <- ecuador0 %>% filter(time_cts < 7.6 | time_cts > 7.7)
+# ecuador0 <- ecuador0 %>% filter(time_cts < 10.3 | time_cts > 10.4)
+# 
+# sensitivity <- ecuador0 %>%
+#   distinct(Specie.Code, Location, tot.yrs) %>%
+#   arrange(tot.yrs) %>%
+#   filter(is.na(tot.yrs) == FALSE) %>%
+#   mutate(ID = paste0(Specie.Code, ":", Location)) %>%
+#   filter(tot.yrs > 2)
+# 
+# ecuador0$ID <- paste0(ecuador0$Specie.Code, ":", ecuador0$Location)
+# 
+# pop_trend <- c()
+# 
+# for (i in 1:95)
+# {
+#   species_use <- unlist(sensitivity$ID)[i:172]
+# 
+#   ecuador_temp <- ecuador0 %>%
+#     filter(ID %in% species_use)
+# 
+#   fit_nb2_temp <- glmmTMB(N ~ 1 +                                         # Null
+#                             Location +                                    # Location
+#                             time_cts +                                    # Continuous time variable
+#                             (1|Specie.Code:Location) +                    # Species-level intercept
+#                             (time_cts + 0|Specie.Code:Location) +         # Species-level slopes
+#                             ar1(as.ordered(time_cts) + 0|Specie.Code) +   # Autocorrelation across time
+#                             offset(log(tot_net_hours)),                   # Offset effort
+#                           family = nbinom2,
+#                           data = ecuador_temp)
+# 
+#   pop_trend[i] <- summary(fit_nb2_temp)$coefficients$cond[4]
+# 
+#   randomslopes <- ranef(fit_nb2_temp)[[1]]$`Specie.Code:Location`
+#   randomslopes$time_cts <- randomslopes$time_cts + pop_trend[i]
+#   randomslopes$ID <- rownames(ranef(fit_nb2_temp)[[1]]$`Specie.Code:Location`)
+#   randomslopes <- randomslopes[,-1]
+# 
+#   sensitivity <- left_join(sensitivity, randomslopes, by = c("ID" = "ID"))
+# 
+#   print(i)
+# }
+
+#save(sensitivity, file = "sensitivity.RData")
+#save(sensitivity, pop_trend, file = "sensitivity2.RData")
+#save(sensitivity, pop_trend, file = "sensitivity3.RData")
+load("sensitivity3.RData")
+
+sensitivity2 <- sensitivity
+sensitivity2 <- sensitivity2[,4:dim(sensitivity2)[2]]
+colnames(sensitivity2) <- c("ID",1:95)
+
+sensitivity3 <- sensitivity2 %>% group_by(ID) %>% gather("Time", "Value", 2:96)
+
+pop <- data.frame(pop_trend = pop_trend, Time = 1:95)
+ggplot(aes(x = as.integer(Time), y = Value, color = ID), data = sensitivity3) +
+  geom_line(na.rm = TRUE) +
+  geom_line(aes(x = Time, y = pop_trend), color = "black", size = 1, data = pop) +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(0,95)) +
+  xlab("Model Fit") +
+  ylab("Species-specific slope") +
+  geom_vline(xintercept = 27, size = 1)
+```
+
+The sensitivity analysis gauges how much the inclusion of any given species affects the overall model predictions. Ideally, predictions are relatively stable. We don't want to see dramatic spikes because this would indicate one species is heavily influencing estimates. Small fluctuations are to be expected because each time we're fitting the model to a slightly different dataset. I think the sensitivity analysis looks good and indicates our model is stable. The black horizontal line shows the population-level estimate and the other colorful lines each represent a species/habitat combo and its specific estimate. Mechanistically, this is what's happening: I fit our model starting with species observed 3 or more years and iteratively removed species/habitat combinations from the regression. I removed species/habitat combinations in order of least observed years to most observed years. After removing each species/habitat combination, I refit the model and looked at how much species-specific estimates changed in the absence of the previously included species. Each of these fits is along the x-axis with the new species-specific slope along the y-axis. The black vertical line shows the cutoff for our model based on only including species observed 4 or more years (these are the results we're using). I continued this iterative process up to only including species observed 7 or more years. 
+
+\newpage
+
+```{r Trait models, echo = FALSE, warning = FALSE, fig.height=4}
+Diet_table <- ecuador_id %>%
+  group_by(Band.Number, Diet) %>%
+  summarize(Diet_group = length(Diet)) %>%
+  group_by(Diet) %>%
+  summarize(N = length(Diet))
+
+kable(Diet_table, caption = "Number of individuals by diet")
+
+ecuador$diet_insect <- ifelse(ecuador$Diet == "I", "Insectivore",
+                              ifelse(ecuador$Diet == "N", "Nectarivore",
+                                     "Omnivore"))
+
+fit_nb2_corr_diet <- glmmTMB(N ~ 1 +                                                 # Null
+                            diet_insect +
+                            #diet_insect * time_cts +
+                            Location +                                               # Location
+                            time_cts +                                               # Continuous time variable
+                            (1|Specie.Code:Location) +                               # Species-level intercept
+                            (time_cts + 0|Specie.Code:Location) +
+                            ar1(as.ordered(time_cts) + 0|Specie.Code) +              # Autocorrelation across time
+                            offset(log(tot_net_hours)),
+                          family = nbinom2,
+                          data = ecuador)
+
+Diet_tab_fit <- summary(fit_nb2_corr_diet)$coefficients$cond
+rownames(Diet_tab_fit) <- c("Intercept", "Diet (Nectarivore)", "Diet (Omnivore)", "Location (MAIN)", "Location (MASE)", "Time")
+
+#kable(Diet_tab_fit, caption = "Diet model fit on original scale")
+
+# Transformation
+vcov <- matrix(unlist(vcov(fit_nb2_corr_diet)), nrow = 6)
+
+# LLAV
+Diet_tab_fit2 <- data.frame(Estimate_Llav = c(Diet_tab_fit[1,1],
+                                              Diet_tab_fit[1,1] + Diet_tab_fit[2,1],
+                                              Diet_tab_fit[1,1] + Diet_tab_fit[3,1]))
+
+Diet_tab_fit2$SE_Llav <- c(round(sqrt(vcov[1,1]), 3),
+                           round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2]), 3),
+                           round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3]), 3))
+
+Diet_tab_fit2$LB_Llav <- round(exp(Diet_tab_fit2$Estimate_Llav - 1.96*Diet_tab_fit2$SE_Llav), 5)*1000
+Diet_tab_fit2$Est_Llav <- round(exp(Diet_tab_fit2$Estimate_Llav), 5)*1000
+Diet_tab_fit2$UB_Llav <- round(exp(Diet_tab_fit2$Estimate_Llav + 1.96*Diet_tab_fit2$SE_Llav), 5)*1000
+
+Diet_tab_fit2$CI_Llav <- paste0("(", Diet_tab_fit2$LB_Llav, ", ", Diet_tab_fit2$Est_Llav, ", ", Diet_tab_fit2$UB_Llav, ")")
+
+# MAIN
+Diet_tab_fit2$Estimate_Main <- c(Diet_tab_fit[1,1] + Diet_tab_fit[4,1],
+                                 Diet_tab_fit[1,1] + Diet_tab_fit[2,1] + Diet_tab_fit[4,1],
+                                 Diet_tab_fit[1,1] + Diet_tab_fit[3,1] + Diet_tab_fit[4,1])
+
+Diet_tab_fit2$SE_Main <- c(round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4]), 3),
+                           round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[4,4] + 2*vcov[1,4] + 2*vcov[2,4]), 3),
+                           round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[4,4] + 2*vcov[1,4] + 2*vcov[3,4]), 3))
+
+Diet_tab_fit2$LB_Main <- round(exp(Diet_tab_fit2$Estimate_Main - 1.96*Diet_tab_fit2$SE_Main), 5)*1000
+Diet_tab_fit2$Est_Main <- round(exp(Diet_tab_fit2$Estimate_Main), 5)*1000
+Diet_tab_fit2$UB_Main <- round(exp(Diet_tab_fit2$Estimate_Main + 1.96*Diet_tab_fit2$SE_Main), 5)*1000
+
+Diet_tab_fit2$CI_Main <- paste0("(", Diet_tab_fit2$LB_Main, ", ", Diet_tab_fit2$Est_Main, ", ", Diet_tab_fit2$UB_Main, ")")
+
+# MASE
+Diet_tab_fit2$Estimate_Mase <- c(Diet_tab_fit[1,1] + Diet_tab_fit[5,1],
+                                 Diet_tab_fit[1,1] + Diet_tab_fit[2,1] + Diet_tab_fit[5,1],
+                                 Diet_tab_fit[1,1] + Diet_tab_fit[3,1] + Diet_tab_fit[5,1])
+
+Diet_tab_fit2$SE_Mase <- c(round(sqrt(vcov[1,1] + vcov[5,5] + 2*vcov[1,5]), 3),
+                           round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[2,5]), 3),
+                           round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[3,5]), 3))
+
+Diet_tab_fit2$LB_Mase <- round(exp(Diet_tab_fit2$Estimate_Mase - 1.96*Diet_tab_fit2$SE_Mase), 5)*1000
+Diet_tab_fit2$Est_Mase <- round(exp(Diet_tab_fit2$Estimate_Mase), 5)*1000
+Diet_tab_fit2$UB_Mase <- round(exp(Diet_tab_fit2$Estimate_Mase + 1.96*Diet_tab_fit2$SE_Mase), 5)*1000
+
+Diet_tab_fit2$CI_Mase <- paste0("(", Diet_tab_fit2$LB_Mase, ", ", Diet_tab_fit2$Est_Mase, ", ", Diet_tab_fit2$UB_Mase, ")")
+
+Diet_tab_fit2$Diet <- c("Insectivore", "Nectarivore", "Omnivore")
+
+plot_diet <- data.frame(Estimate = c(Diet_tab_fit2$Est_Llav, Diet_tab_fit2$Est_Main, Diet_tab_fit2$Est_Mase),
+                        LB = c(Diet_tab_fit2$LB_Llav, Diet_tab_fit2$LB_Main, Diet_tab_fit2$LB_Mase),
+                        UB = c(Diet_tab_fit2$UB_Llav, Diet_tab_fit2$UB_Main, Diet_tab_fit2$UB_Mase), 
+                        Diet = rep(Diet_tab_fit2$Diet, 3),
+                        Habitat = c(rep("Secondary Forest (LLAV)", 3), 
+                                    rep("Introduced Forest (MAIN)", 3),
+                                    rep("Primary Forest (MASE)", 3)),
+                        Y1 = c(3.15, 3, 2.85,
+                              2.15, 2, 1.85,
+                              1.15, 1, 0.85),
+                        Y2 = c(0.85, 1.85, 2.85,
+                               1.15, 2.15, 3.15,
+                               1, 2, 3))
+
+plot_diet2 <- plot_diet[,c(5,4,1,2,3)]
+colnames(plot_diet2)[4:5] <- c("Lower 95% Estimate", "Upper 95% Estimate")
+kable(plot_diet2, caption = "Diet model baseline capture rates per 1000 net hours")
+```
+
+The diet model indicates that there is a significant difference in baseline capture rates between the insectivores and nectarivores. The baseline capture rates for insectivores and omnivores are not statistically different. There is insufficient statistical evidence to suggest that capture rates are changing differently for insectivores, nectarivores, and omnivores (i.e. all diet groups share the estimated 2.83\% decrease in capture rate from year to year; this decrease in capture rate starts from the estimated baseline capture rate). Baseline capture rates per 1000 net hours are summarized in the table above and in the figures on the next page. The time effect is very similar to our original model. We predict a 2.83\% decrease in capture rate from year to year (95\% CI: 0.9-4.7\% decrease).
+
+\newpage
+
+```{r, echo = FALSE, fig.height= 4}
+ggplot(aes(x = Estimate, y = Y1, color = Diet), data = plot_diet) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y1, yend = Y1), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("Primary Forest (MASE)", "Introduced Forest (MAIN)", "Secondary Forest (LLAV)")) +
+  ylab("Habitat\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by diet")
+
+ggplot(aes(x = Estimate, y = Y2, color = Habitat), data = plot_diet) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y2, yend = Y2), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("Insectivore", "Nectarivore", "Omnivore")) +
+  ylab("Diet\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by diet")
+```
+
+\newpage
+
+```{r body size fit, echo = FALSE}
+BodySize_table <- ecuador_id %>%
+  group_by(Band.Number, Body_Size) %>%
+  summarize(BodySize_group = length(Body_Size)) %>%
+  group_by(Body_Size) %>%
+  summarize(N = length(Body_Size))
+
+kable(BodySize_table, caption = "Number of individuals by body size")
+
+ecuador$bodysize_group <- ifelse(ecuador$Body_Size == 1, "BodySize1",
+                                 ifelse(ecuador$Body_Size == 2, "BodySize2",
+                                        "BodySize3+"))
+
+fit_nb2_corr_bodysize <- glmmTMB(N ~ 1 +                                               # Null
+                                  bodysize_group +
+                                  #bodysize_group*time_cts +
+                                  Location +                                          # Location
+                                  time_cts +                                          # Continuous time variable
+                                  (1|Specie.Code:Location) +                          # Species-level intercept
+                                  (time_cts + 0|Specie.Code:Location) +
+                                  ar1(as.ordered(time_cts) + 0|Specie.Code) +         # Autocorrelation across time
+                                  offset(log(tot_net_hours)),
+                                family = nbinom2,
+                                data = ecuador)
+
+BodySize_tab_fit <- summary(fit_nb2_corr_bodysize)$coefficients$cond
+rownames(BodySize_tab_fit) <- c("Intercept", "Body Size 2", "Body Size 3+", "Location (MAIN)", "Location (MASE)", "Time")
+
+#kable(BodySize_tab_fit, caption = "Body size model fit on original scale")
+
+# Transformation
+vcov <- matrix(unlist(vcov(fit_nb2_corr_bodysize)), nrow = 6)
+
+# LLAV
+BodySize_tab_fit2 <- data.frame(Estimate_Llav = c(BodySize_tab_fit[1,1],
+                                                  BodySize_tab_fit[1,1] + BodySize_tab_fit[2,1],
+                                                  BodySize_tab_fit[1,1] + BodySize_tab_fit[3,1]))
+
+BodySize_tab_fit2$SE_Llav <- c(round(sqrt(vcov[1,1]), 3),
+                           round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2]), 3),
+                           round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3]), 3))
+
+BodySize_tab_fit2$LB_Llav <- round(exp(BodySize_tab_fit2$Estimate_Llav - 1.96*BodySize_tab_fit2$SE_Llav), 5)*1000
+BodySize_tab_fit2$Est_Llav <- round(exp(BodySize_tab_fit2$Estimate_Llav), 5)*1000
+BodySize_tab_fit2$UB_Llav <- round(exp(BodySize_tab_fit2$Estimate_Llav + 1.96*BodySize_tab_fit2$SE_Llav), 5)*1000
+
+BodySize_tab_fit2$CI_Llav <- paste0("(", BodySize_tab_fit2$LB_Llav, ", ", BodySize_tab_fit2$Est_Llav, ", ", BodySize_tab_fit2$UB_Llav, ")")
+
+# MAIN
+BodySize_tab_fit2$Estimate_Main <- c(BodySize_tab_fit[1,1] + BodySize_tab_fit[4,1],
+                                 BodySize_tab_fit[1,1] + BodySize_tab_fit[2,1] + BodySize_tab_fit[4,1],
+                                 BodySize_tab_fit[1,1] + BodySize_tab_fit[3,1] + BodySize_tab_fit[4,1])
+
+BodySize_tab_fit2$SE_Main <- c(round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4]), 3),
+                           round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[4,4] + 2*vcov[1,4] + 2*vcov[2,4]), 3),
+                           round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[4,4] + 2*vcov[1,4] + 2*vcov[3,4]), 3))
+
+BodySize_tab_fit2$LB_Main <- round(exp(BodySize_tab_fit2$Estimate_Main - 1.96*BodySize_tab_fit2$SE_Main), 5)*1000
+BodySize_tab_fit2$Est_Main <- round(exp(BodySize_tab_fit2$Estimate_Main), 5)*1000
+BodySize_tab_fit2$UB_Main <- round(exp(BodySize_tab_fit2$Estimate_Main + 1.96*BodySize_tab_fit2$SE_Main), 5)*1000
+
+BodySize_tab_fit2$CI_Main <- paste0("(", BodySize_tab_fit2$LB_Main, ", ", BodySize_tab_fit2$Est_Main, ", ", BodySize_tab_fit2$UB_Main, ")")
+
+# MASE
+BodySize_tab_fit2$Estimate_Mase <- c(BodySize_tab_fit[1,1] + BodySize_tab_fit[5,1],
+                                 BodySize_tab_fit[1,1] + BodySize_tab_fit[2,1] + BodySize_tab_fit[5,1],
+                                 BodySize_tab_fit[1,1] + BodySize_tab_fit[3,1] + BodySize_tab_fit[5,1])
+
+BodySize_tab_fit2$SE_Mase <- c(round(sqrt(vcov[1,1] + vcov[5,5] + 2*vcov[1,5]), 3),
+                           round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[2,5]), 3),
+                           round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[3,5]), 3))
+
+BodySize_tab_fit2$LB_Mase <- round(exp(BodySize_tab_fit2$Estimate_Mase - 1.96*BodySize_tab_fit2$SE_Mase), 5)*1000
+BodySize_tab_fit2$Est_Mase <- round(exp(BodySize_tab_fit2$Estimate_Mase), 5)*1000
+BodySize_tab_fit2$UB_Mase <- round(exp(BodySize_tab_fit2$Estimate_Mase + 1.96*BodySize_tab_fit2$SE_Mase), 5)*1000
+
+BodySize_tab_fit2$CI_Mase <- paste0("(", BodySize_tab_fit2$LB_Mase, ", ", BodySize_tab_fit2$Est_Mase, ", ", BodySize_tab_fit2$UB_Mase, ")")
+
+BodySize_tab_fit2$BodySize <- c("1", "2", "3+")
+
+plot_bodysize <- data.frame(Estimate = c(BodySize_tab_fit2$Est_Llav, BodySize_tab_fit2$Est_Main, BodySize_tab_fit2$Est_Mase),
+                        LB = c(BodySize_tab_fit2$LB_Llav, BodySize_tab_fit2$LB_Main, BodySize_tab_fit2$LB_Mase),
+                        UB = c(BodySize_tab_fit2$UB_Llav, BodySize_tab_fit2$UB_Main, BodySize_tab_fit2$UB_Mase),                         BodySize = rep(BodySize_tab_fit2$BodySize, 3),
+                        Habitat = c(rep("Secondary Forest (LLAV)", 3), 
+                                    rep("Introduced Forest (MAIN)", 3),
+                                    rep("Primary Forest (MASE)", 3)),
+                        Y1 = c(3.15, 3, 2.85,
+                              2.15, 2, 1.85,
+                              1.15, 1, 0.85),
+                        Y2 = c(0.85, 1.85, 2.85,
+                               1.15, 2.15, 3.15,
+                               1, 2, 3))
+
+plot_bodysize2 <- plot_bodysize[,c(5,4,1,2,3)]
+colnames(plot_bodysize2)[4:5] <- c("Lower 95% Estimate", "Upper 95% Estimate")
+kable(plot_bodysize2, caption = "Body size model baseline capture rates per 1000 net hours")
+```
+
+We find that body size 2 has significantly lower baseline capture rates relative to body size 1. Body size 3 has significantly lower baseline capture rates relative to body size 1. There is no statistically significant difference in how the capture rates change with time for the three body size groups (i.e. all are decreasing by 2.8\% (95\% CI: 0.9-4.7\%) per year from their respective baseline capture rate). There are no statistically significant differences between the habitat types (LLAV, MAIN, MASE) in terms of baseline capture rates.
+
+\newpage
+
+```{r, echo = FALSE, fig.height= 4}
+ggplot(aes(x = Estimate, y = Y1, color = BodySize), data = plot_bodysize) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y1, yend = Y1), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("Primary Forest (MASE)", "Introduced Forest (MAIN)", "Secondary Forest (LLAV)")) +
+  ylab("Habitat\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by body size")
+
+ggplot(aes(x = Estimate, y = Y2, color = Habitat), data = plot_bodysize) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y2, yend = Y2), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("1", "2", "3+")) +
+  ylab("Body size\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by body size")
+```
+
+\newpage
+
+
+```{r habitat fit, echo = FALSE}
+Habitat_table <- ecuador_id %>%
+  group_by(Band.Number, Primary_Habitat) %>%
+  summarize(PrimaryHabitat_group = length(Primary_Habitat)) %>%
+  group_by(Primary_Habitat) %>%
+  summarize(N = length(Primary_Habitat))
+
+kable(Habitat_table, caption = "Number of individuals by primary habitat")
+
+ecuador$habitat_group <- ifelse(ecuador$Primary_Habitat == "D", "D",
+                                ifelse(ecuador$Primary_Habitat == "E" | ecuador$Primary_Habitat == "N", "E or N",
+                                       ifelse(ecuador$Primary_Habitat == "F", "F",
+                                              ifelse(ecuador$Primary_Habitat == "P", "P", NA))))
+
+fit_nb2_corr_habitat <- glmmTMB(N ~ 1 +                                               # Null
+                                  habitat_group +
+                                  #habitat_group*time_cts +
+                                  Location +                                          # Location
+                                  time_cts +                                          # Continuous time variable
+                                  (1|Specie.Code:Location) +                          # Species-level intercept
+                                  (time_cts + 0|Specie.Code:Location) +
+                                  ar1(as.ordered(time_cts) + 0|Specie.Code) +         # Autocorrelation across time
+                                  offset(log(tot_net_hours)),
+                                family = nbinom2,
+                                data = ecuador)
+
+
+Habitat_tab_fit <- summary(fit_nb2_corr_habitat)$coefficients$cond
+#rownames(BodySize_tab_fit) <- c("Intercept", "Body Size 2", "Body Size 3", "Body Size 4", "Location (MAIN)", "Location (MASE)", "Time")
+
+#kable(Habitat_tab_fit, caption = "Primary habitat model fit on original scale")
+
+# Transformation
+vcov <- matrix(unlist(vcov(fit_nb2_corr_habitat)), nrow = 7)
+
+# LLAV
+Habitat_tab_fit2 <- data.frame(Estimate_Llav = c(Habitat_tab_fit[1,1],
+                                                 Habitat_tab_fit[1,1] + Habitat_tab_fit[2,1],
+                                                 Habitat_tab_fit[1,1] + Habitat_tab_fit[3,1],
+                                                 Habitat_tab_fit[1,1] + Habitat_tab_fit[4,1]))
+
+Habitat_tab_fit2$SE_Llav <- c(round(sqrt(vcov[1,1]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4]), 3))
+
+Habitat_tab_fit2$LB_Llav <- round(exp(Habitat_tab_fit2$Estimate_Llav - 1.96*Habitat_tab_fit2$SE_Llav), 5)*1000
+Habitat_tab_fit2$Est_Llav <- round(exp(Habitat_tab_fit2$Estimate_Llav), 5)*1000
+Habitat_tab_fit2$UB_Llav <- round(exp(Habitat_tab_fit2$Estimate_Llav + 1.96*Habitat_tab_fit2$SE_Llav), 5)*1000
+
+Habitat_tab_fit2$CI_Llav <- paste0("(", Habitat_tab_fit2$LB_Llav, ", ", Habitat_tab_fit2$Est_Llav, ", ", Habitat_tab_fit2$UB_Llav, ")")
+
+# MAIN
+Habitat_tab_fit2$Estimate_Main <- c(Habitat_tab_fit[1,1] + Habitat_tab_fit[5,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[2,1] + Habitat_tab_fit[5,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[3,1] + Habitat_tab_fit[5,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[4,1] + Habitat_tab_fit[5,1])
+
+Habitat_tab_fit2$SE_Main <- c(round(sqrt(vcov[1,1] +                           vcov[5,5] + 2*vcov[1,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[2,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[3,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[4,5]), 3))
+
+Habitat_tab_fit2$LB_Main <- round(exp(Habitat_tab_fit2$Estimate_Main - 1.96*Habitat_tab_fit2$SE_Main), 5)*1000
+Habitat_tab_fit2$Est_Main <- round(exp(Habitat_tab_fit2$Estimate_Main), 5)*1000
+Habitat_tab_fit2$UB_Main <- round(exp(Habitat_tab_fit2$Estimate_Main + 1.96*Habitat_tab_fit2$SE_Main), 5)*1000
+
+Habitat_tab_fit2$CI_Main <- paste0("(", Habitat_tab_fit2$LB_Main, ", ", Habitat_tab_fit2$Est_Main, ", ", Habitat_tab_fit2$UB_Main, ")")
+
+# MASE
+Habitat_tab_fit2$Estimate_Mase <- c(Habitat_tab_fit[1,1] + Habitat_tab_fit[6,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[2,1] + Habitat_tab_fit[6,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[3,1] + Habitat_tab_fit[6,1],
+                                    Habitat_tab_fit[1,1] + Habitat_tab_fit[4,1] + Habitat_tab_fit[6,1])
+
+Habitat_tab_fit2$SE_Mase <- c(round(sqrt(vcov[1,1] +                           vcov[6,6] + 2*vcov[1,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[2,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[3,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[4,6]), 3))
+
+Habitat_tab_fit2$LB_Mase <- round(exp(Habitat_tab_fit2$Estimate_Mase - 1.96*Habitat_tab_fit2$SE_Mase), 5)*1000
+Habitat_tab_fit2$Est_Mase <- round(exp(Habitat_tab_fit2$Estimate_Mase), 5)*1000
+Habitat_tab_fit2$UB_Mase <- round(exp(Habitat_tab_fit2$Estimate_Mase + 1.96*Habitat_tab_fit2$SE_Mase), 5)*1000
+
+Habitat_tab_fit2$CI_Mase <- paste0("(", Habitat_tab_fit2$LB_Mase, ", ", Habitat_tab_fit2$Est_Mase, ", ", Habitat_tab_fit2$UB_Mase, ")")
+
+Habitat_tab_fit2$Habitat <- c("D", "E or N", "F", "P")
+
+plot_habitat <- data.frame(Estimate = c(Habitat_tab_fit2$Est_Llav, Habitat_tab_fit2$Est_Main, Habitat_tab_fit2$Est_Mase),
+                           LB = c(Habitat_tab_fit2$LB_Llav, Habitat_tab_fit2$LB_Main, Habitat_tab_fit2$LB_Mase),
+                           UB = c(Habitat_tab_fit2$UB_Llav, Habitat_tab_fit2$UB_Main, Habitat_tab_fit2$UB_Mase),
+                           PrimaryHabitat = rep(Habitat_tab_fit2$Habitat, 3),
+                           Habitat = c(rep("Secondary Forest (LLAV)", 4), 
+                                       rep("Introduced Forest (MAIN)", 4),
+                                       rep("Primary Forest (MASE)", 4)),
+                           Y1 = c(3.15, 3, 2.85, 2.7,
+                                  2.15, 2, 1.85, 1.7,
+                                  1.15, 1, 0.85, 0.7),
+                           Y2 = c(3.85, 2.85, 1.85, 0.85, 
+                                  4.15, 3.15, 2.15, 1.15, 
+                                  4, 3, 2, 1))
+
+colnames(plot_habitat)[4] <- c("Primary Habitat")
+
+plot_habitat2 <- plot_habitat[,c(5,4,1,2,3)]
+colnames(plot_habitat2)[2] <- c("Primary Habitat")
+colnames(plot_habitat2)[4:5] <- c("Lower 95% Estimate", "Upper 95% Estimate")
+kable(plot_habitat2, caption = "Primary habitat model baseline capture rates per 1000 net hours")
+```
+
+We find that primary habitats E and N have significantly lower baseline capture rates than primary habitat D. We find that primary habitat F has significantly lower baseline capture rates than primary habitat D. Primary habitat P does not have significantly different baseline capture rates from primary habitat D. There is no statistically significant difference in how the capture rates change with time for the different primary habitats (i.e. all are decreasing by 2.8\% (95\% CI: 0.9-4.7\%) per year from their respective baseline capture rate). There are no statistically significant differences between the habitat types (LLAV, MAIN, MASE) in terms of baseline capture rates.
+
+\newpage
+
+```{r, echo = FALSE, fig.height= 4}
+ggplot(aes(x = Estimate, y = Y1, color = `Primary Habitat`), data = plot_habitat) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y1, yend = Y1), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("Primary Forest (MASE)", "Introduced Forest (MAIN)", "Secondary Forest (LLAV)")) +
+  ylab("Habitat\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by primary habitat")
+
+ggplot(aes(x = Estimate, y = Y2, color = Habitat), data = plot_habitat) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y2, yend = Y2), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:4, labels = c("P", "F", "E or N", "D")) +
+  ylab("Primary Habitat\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by primary habitat")
+```
+
+\newpage
+
+```{r, echo = FALSE}
+HabitatBreadth_table <- ecuador_id %>%
+  group_by(Band.Number, Habitat_Breadth) %>%
+  summarize(HabitatBreadth_group = length(Habitat_Breadth)) %>%
+  group_by(Habitat_Breadth) %>%
+  summarize(N = length(Habitat_Breadth))
+
+kable(HabitatBreadth_table, caption = "Number of individuals by habitat breadth")
+
+ecuador$breadth_group <- ifelse(ecuador$Habitat_Breadth == 1, "1",
+                                ifelse(ecuador$Habitat_Breadth == 2, "2",
+                                       ifelse(ecuador$Habitat_Breadth == 3, "3",
+                                             ifelse(ecuador$Habitat_Breadth > 3, "4+", NA))))
+
+fit_nb2_corr_breadth <- glmmTMB(N ~ 1 +                                               # Null
+                                  as.factor(breadth_group) +
+                                  #as.factor(breadth_group)*time_cts +
+                                  Location +                                          # Location
+                                  time_cts +                                          # Continuous time variable
+                                  (1|Specie.Code:Location) +                          # Species-level intercept
+                                  (time_cts + 0|Specie.Code:Location) +
+                                  ar1(as.ordered(time_cts) + 0|Specie.Code) +         # Autocorrelation across time
+                                  offset(log(tot_net_hours)),
+                                family = nbinom2,
+                                data = ecuador)
+
+Breadth_tab_fit <- summary(fit_nb2_corr_breadth)$coefficients$cond
+# rownames(HabitatBreadth_tab_fit) <- c("Intercept", "Body Size 2", "Body Size 3", "Body Size 4", "Location (MAIN)", "Location (MASE)", "Time")
+
+# kable(HabitatBreadth_tab_fit, caption = "Habitat breadth model fit on original scale")
+
+# Transformation
+vcov <- matrix(unlist(vcov(fit_nb2_corr_breadth)), nrow = 7)
+
+# LLAV
+Breadth_tab_fit2 <- data.frame(Estimate_Llav = c(Breadth_tab_fit[1,1],
+                                                 Breadth_tab_fit[1,1] + Breadth_tab_fit[2,1],
+                                                 Breadth_tab_fit[1,1] + Breadth_tab_fit[3,1],
+                                                 Breadth_tab_fit[1,1] + Breadth_tab_fit[4,1]))
+
+Breadth_tab_fit2$SE_Llav <- c(round(sqrt(vcov[1,1]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4]), 3))
+
+Breadth_tab_fit2$LB_Llav <- round(exp(Breadth_tab_fit2$Estimate_Llav - 1.96*Breadth_tab_fit2$SE_Llav), 5)*1000
+Breadth_tab_fit2$Est_Llav <- round(exp(Breadth_tab_fit2$Estimate_Llav), 5)*1000
+Breadth_tab_fit2$UB_Llav <- round(exp(Breadth_tab_fit2$Estimate_Llav + 1.96*Breadth_tab_fit2$SE_Llav), 5)*1000
+
+Breadth_tab_fit2$CI_Llav <- paste0("(", Breadth_tab_fit2$LB_Llav, ", ", Breadth_tab_fit2$Est_Llav, ", ", Breadth_tab_fit2$UB_Llav, ")")
+
+# MAIN
+Breadth_tab_fit2$Estimate_Main <- c(Breadth_tab_fit[1,1] + Breadth_tab_fit[5,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[2,1] + Breadth_tab_fit[5,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[3,1] + Breadth_tab_fit[5,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[4,1] + Breadth_tab_fit[5,1])
+
+Breadth_tab_fit2$SE_Main <- c(round(sqrt(vcov[1,1] +                           vcov[5,5] + 2*vcov[1,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[2,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[3,5]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4] + vcov[5,5] + 2*vcov[1,5] + 2*vcov[4,5]), 3))
+
+Breadth_tab_fit2$LB_Main <- round(exp(Breadth_tab_fit2$Estimate_Main - 1.96*Breadth_tab_fit2$SE_Main), 5)*1000
+Breadth_tab_fit2$Est_Main <- round(exp(Breadth_tab_fit2$Estimate_Main), 5)*1000
+Breadth_tab_fit2$UB_Main <- round(exp(Breadth_tab_fit2$Estimate_Main + 1.96*Breadth_tab_fit2$SE_Main), 5)*1000
+
+Breadth_tab_fit2$CI_Main <- paste0("(", Breadth_tab_fit2$LB_Main, ", ", Breadth_tab_fit2$Est_Main, ", ", Breadth_tab_fit2$UB_Main, ")")
+
+# MASE
+Breadth_tab_fit2$Estimate_Mase <- c(Breadth_tab_fit[1,1] + Breadth_tab_fit[6,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[2,1] + Breadth_tab_fit[6,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[3,1] + Breadth_tab_fit[6,1],
+                                    Breadth_tab_fit[1,1] + Breadth_tab_fit[4,1] + Breadth_tab_fit[6,1])
+
+Breadth_tab_fit2$SE_Mase <- c(round(sqrt(vcov[1,1] +                           vcov[6,6] + 2*vcov[1,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[2,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[3,6]), 3),
+                              round(sqrt(vcov[1,1] + vcov[4,4] + 2*vcov[1,4] + vcov[6,6] + 2*vcov[1,6] + 2*vcov[4,6]), 3))
+
+Breadth_tab_fit2$LB_Mase <- round(exp(Breadth_tab_fit2$Estimate_Mase - 1.96*Breadth_tab_fit2$SE_Mase), 5)*1000
+Breadth_tab_fit2$Est_Mase <- round(exp(Breadth_tab_fit2$Estimate_Mase), 5)*1000
+Breadth_tab_fit2$UB_Mase <- round(exp(Breadth_tab_fit2$Estimate_Mase + 1.96*Breadth_tab_fit2$SE_Mase), 5)*1000
+
+Breadth_tab_fit2$CI_Mase <- paste0("(", Breadth_tab_fit2$LB_Mase, ", ", Breadth_tab_fit2$Est_Mase, ", ", Breadth_tab_fit2$UB_Mase, ")")
+
+Breadth_tab_fit2$Breadth <- c("1", "2", "3", "4+")
+
+plot_breadth <- data.frame(Estimate = c(Breadth_tab_fit2$Est_Llav, Breadth_tab_fit2$Est_Main, Breadth_tab_fit2$Est_Mase),
+                           LB = c(Breadth_tab_fit2$LB_Llav, Breadth_tab_fit2$LB_Main, Breadth_tab_fit2$LB_Mase),
+                           UB = c(Breadth_tab_fit2$UB_Llav, Breadth_tab_fit2$UB_Main, Breadth_tab_fit2$UB_Mase),
+                           HabitatBreadth = rep(Breadth_tab_fit2$Breadth, 3),
+                           Habitat = c(rep("Secondary Forest (LLAV)", 4), 
+                                       rep("Introduced Forest (MAIN)", 4),
+                                       rep("Primary Forest (MASE)", 4)),
+                           Y1 = c(3.15, 3, 2.85, 2.7,
+                                  2.15, 2, 1.85, 1.7,
+                                  1.15, 1, 0.85, 0.7),
+                           Y2 = c(0.85, 1.85, 2.85, 3.85, 
+                                  1.15, 2.15, 3.15, 4.15, 
+                                  1,2,3,4))
+
+colnames(plot_breadth)[4] <- c("Habitat Breadth")
+
+plot_breadth2 <- plot_breadth[,c(5,4,1,2,3)]
+colnames(plot_breadth2)[2] <- c("Habitat Breadth")
+colnames(plot_breadth2)[4:5] <- c("Lower 95% Estimate", "Upper 95% Estimate")
+kable(plot_breadth2, caption = "Habitat breadth model baseline capture rates per 1000 net hours")
+```
+
+We find that habitat breadths 2 and 3 do not differ significantly from habitat breadth 1 in terms of baseline capture rates. Habitat breadths 4+ have significantly higher baseline capture rates than habitat breadth 1. There is no statistically significant difference in how the capture rates change with time for the different habitat breadths (i.e. all are decreasing by 2.8\% (95\% CI: 0.9-4.7\%) per year from their respective baseline capture rate). We find that the baseline capture rate in MASE is significantly lower than that in LLAV after adjusting for habitat breadth and sampling session.
+
+```{r, echo = FALSE, fig.height= 4}
+ggplot(aes(x = Estimate, y = Y1, color = `Habitat Breadth`), data = plot_breadth) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y1, yend = Y1), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:3, labels = c("Primary Forest (MASE)", "Introduced Forest (MAIN)", "Secondary Forest (LLAV)")) +
+  ylab("Habitat\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by habitat breadth")
+
+ggplot(aes(x = Estimate, y = Y2, color = Habitat), data = plot_breadth) +
+  geom_point(size = 1.5) +
+  geom_segment(aes(x = LB, xend = UB, y = Y2, yend = Y2), size = 1) +
+  theme_bw() +
+  scale_y_continuous(breaks = 1:4, labels = c("1", "2", "3", "4+")) +
+  ylab("Habitat Breadth\n") +
+  xlab("Predicted captures per 1000 net hours") +
+  ggtitle("Predicted capture rates by habitat breadth")
+```
+
+
+```{r, include = FALSE}
+png(filename = "RPlot2.png", width = 2000, height = 2000, res = 400)
+ecuador %>% group_by(time_cts, Location) %>% summarize(meanCap = mean(caps_per_1K_nethours)) %>%
+  ggplot(aes(x = time_cts, y = meanCap)) +
+  geom_line() +
+  theme_bw() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+  facet_grid(Location~., scales = "free") +
+  scale_x_continuous(breaks = 1:11, labels = 2006:2016) +
+  xlab("Year") + 
+  ylab("Captures per 1K Net Hours") 
+dev.off()
+
+png(filename = "RPlot1.png", width = 2000, height = 2000, res = 400)
+ggplot(aes(y = caps_per_1K_nethours, x = time_cts), data = ecuador) +
+    geom_line(aes(color = Specie.Code)) +
+  theme_bw() +
+    theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+    facet_grid(Location~.) +
+    scale_x_continuous(breaks = 1:11, labels = 2006:2016) +
+  xlab("Year") + 
+  ylab("Captures per 1K Net Hours")
+dev.off()
+```
+
+
+```{r, include = FALSE}
+fit <- glm(N ~ 1 +
+      #Location + 
+      time_cts,# +
+      #Location : time_cts,
+    family = poisson,
+    data = subset(ecuador, Specie.Code == "CIPL"),
+    offset = log(tot_net_hours))
+summary(fit)
+```
+

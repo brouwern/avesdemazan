@@ -1,0 +1,508 @@
+---
+title: "g) Model selection - error structure"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{g) Model selection - error structure}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Introduction
+
+This script examines different error structures (Poisson, negative binomial, etc.) and uses information criteria (AIC and BIC) to determine which are most promising.
+
+Once the overall error structure has been assessed, the fixed effects and random effect can be assessed; these tasks are each done in a separate script. 
+
+
+
+
+## Preliminaries
+
+```{r setup, message = F, warning = F}
+library(avesdemazan)
+
+# Model fitting
+library(lme4)       # glmer() for glmm
+library(glmmTMB)    # glmm with AR-1  
+# library(blme)       # bglmer (used?)
+
+# Model evaluation
+# library(afex)       # functionall_fit()
+# library(multcomp)   
+# library(emmeans)
+library(bbmle)      # aictab
+library(arm)        # se.fit()
+
+# Result visualization
+# library(ggplot2)    
+# library(ggstance)  
+# library(grid)
+# library(gridExtra)  
+
+#  markdown etc
+library(knitr)    
+```
+
+
+## Get current version / citation info for key packages
+
+```{r}
+packageVersion("glmmTMB")
+citation("bbmle")
+```
+
+
+### Load data
+
+Load capture data. 
+
+```{r}
+data("ecuador")
+```
+
+Key columns for models run in tis script:
+```{r}
+head(ecuador[,1:9])
+```
+
+
+### Example data 
+
+NOTE! glmmTMB has recently been throwing an error even when models are Ok
+
+(Model from glmmTMB documentation).
+
+```{r}
+(m1 <- glmmTMB(count ~ mined +
+                      (1|site),
+                     ziformula = ~mined,
+                     family = poisson, 
+                     data = Salamanders))
+summary(m1)
+```
+
+
+Recently this error was thrown, though may be cleared up in more recent versions.
+
+```{r, eval = F}
+>Warning messages:
+1: In Matrix::sparseMatrix(dims = c(0, 0), i = integer(0), j = integer(0),  :
+  'giveCsparse' has been deprecated; setting 'repr = "T"' for you
+```
+
+
+According to Bolker its harmless
+https://stackoverflow.com/questions/67040472/warning-in-every-model-of-glmmtmb-givecsparse
+
+
+## Species-specifc models of captures
+
+### Formulas
+
+#### Possible random effects
+
+* There are two general classes of random effects to consider: location-species, and time
+* There's a tradeoff between what deserves to be a random effect and what will actually converge
+
+**Species-Location:**
+
+* Species are (partially) crossed with location.  
+* There are only 3 locations so its difficult to use a random effect just for it.  
+* The easiest way to represent this is with a species:location random effect.
+
+**Time random effects:**
+
+* There are two possible random effects for time: sampling year and sampling sessions
+* There are only 3 sampling sessions so on their own these work best as a fixed effect, if included at all
+* However, we're using a autocorrelated AR-1 model, which I think should impact how we think about the time random effects
+* Year as a stand-alone random effect is problematic because it splits up adjacent samplig seasons that occur in different years, eg. 2010-Fall vs. 2011-Winter are adjacent to each other in the sequence of sampling dates but would be grouped into two different bins of the random effect.
+* I think what makes the most sense is a year:sessions random effect.  With this, all captures at approximately the same time will be induced to be correlated.  Within a nominal year the AR-1 should deal with correlation between succession sampling sessions (Winter-Spring, Spring-Fall).
+* It may be useful to include a session and Location*session FIXED effect to capture the fact there may be typical seasonal dynamics (e.g. altiduinal migraiton); however, this is likely to be species specific.
+* In theory there might be Species:session or even Species:session:Location effects to account for species-specific variation in seasonal behavior, but this would be hard to deal with and would probably be mostly covered by the Species:location random effects and random slopes
+
+#### Formula 1: No Autocorrelation structure
+
+* In comments, FE = fixed effect, RE = random effect, RS = random slopes
+* Effects that have been commented out either negatively impacted converged or were were not justified by the study design / theory / goal of the analysis
+
+```{r}
+form_glmm_no_autocorr <- formula(N ~ 1 +          # Intercept
+                      Location +                  # Location FE; 3 level factor
+                      # session +                 # session FE
+                      # Location*session  +       # Location*session  FE
+                      time_cts +                  # Continuous time variable
+                      (1|Specie.Code) +           # species RE; DOES THIS CONVERGE?
+                      (1|Specie.Code:session) +   # DOES THIS CONVERGE? <= over fit?
+                      (1|year:session) +          # DOES THIS CONVERGE? <= add year:sessions:loc?
+                      (1|Specie.Code:Location) +  # Species:location intercept
+                      (time_cts + 
+                       0|Specie.Code:Location) +   # Species-location RS
+                      offset(log(tot_net_hours))   # offset for effort
+                      )
+
+```
+
+
+This is similar to Emily's original model and has not been updated with my most recent thinking
+```{r}
+# form_glmm_ar1 <- formula(N ~ 1 +                                    # Null
+#                            Location +                               # Location
+#                            time_cts +                             # Continuous time variable
+#                            (1|Specie.Code:Location) +             # Species-level intercept
+#                            (time_cts + 
+#                                 0|Specie.Code:Location) +
+#                            
+#                            ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +
+#                            offset(log(tot_net_hours)) ) # Autocorrelation across 
+
+```
+
+
+update of above (?) with additional notes and things commented out (?)
+```{r}
+form_glmm_ar1 <- formula(N ~ 1 +          # Intercept
+                      Location +                  # Location FE; 3 level factor
+                      # session +                 # session FE
+                      # Location*session  +       # Location*session  FE
+                      time_cts +                  # Continuous time variable
+                      (1|Specie.Code) +         # species RE; DOES THIS CONVERGE?
+                      (1|Specie.Code:session) +         #DOES THIS CONVERGE?
+                      (1|year:session) +         # DOES THIS CONVERGE? 
+                      # (1|Specie.Code:Location) +  # Species:location intercept
+                      ar1(as.ordered(time_cts) + 0|Specie.Code:Location)
+                      
+                      (time_cts + 
+                       0|Specie.Code:Location) +   # Species-location RS
+                      
+                      offset(log(tot_net_hours))   # offset for effort
+                      )
+```
+
+
+
+### Standard GLMMs - no autocorrelation
+
+
+None of these models have autocorrelation 
+
+```{r}
+# base- model
+fit_pois <- glmmTMB(form_glmm_no_autocorr,         
+                      family = poisson,
+                      data = ecuador)
+
+# zero-inflacted poisson
+fit_zip <- update(fit_pois,
+                  ziformula = ~1)
+
+# negative-binomial-1
+## (not a good model but included for completeness)
+fit_nb1 <- update(fit_pois,
+                  family = nbinom1) #nb1
+
+# negative-binomial-2
+## Typically the best model
+fit_nb2 <- update(fit_pois,
+                  family = nbinom2) #nb2
+
+# zero-inflated negative-binomial-1
+fit_zinb1 <- update(fit_pois,
+                    family = nbinom1, #nb1
+                     ziformula = ~ 1)
+
+# zero-inflated negative-binomial-2
+fit_zinb2 <- update(fit_pois,
+                    family = nbinom2, #nb2
+                     ziformula = ~ 1)
+```
+
+AIC for models WITHOUT autocorrelation
+```{r}
+AICtab(fit_pois,
+       fit_zip,
+       fit_nb1,
+       fit_nb2,
+       fit_zinb1,
+       fit_zinb2)
+
+
+```
+
+Examine nb2 model, which is the best.
+```{r}
+summary(fit_nb2)
+```
+
+
+
+
+### AR-1 models
+
+```{r}
+# Converges
+## After updating the minor misspecificaion in models
+## fit by ES this model is the best performing one.
+fam_poisson <- "poisson"
+fit_pois_corr <- glmmTMB(form_glmm_ar1,             # Offset for effort
+                      family = fam_poisson,
+                      data = ecuador)
+
+# ZIP
+## converges
+fit_zip_corr <- update(fit_pois_corr,
+                  ziformula = ~1)
+
+# negative-binomial 1
+## (poor model, included for completeness)
+## throws error as of ## throws error as of Tue Aug 10
+fit_nb1_corr <- update(fit_pois_corr,
+                  family = nbinom1) #nb1
+
+# typically best error structure
+# BUT - when it has autocorrelation and
+##      the minor misspecificaiton in ES original models, 
+##      it throws warnings
+## throws error as of Tue Aug 10
+fit_nb2_corr <- update(fit_pois_corr,
+                  family = nbinom2) #nb2
+
+# zero-inflated negbin
+## throws error as of Tue Aug 10
+fit_zinb2_corr <- update(fit_pois_corr,
+                    family = nbinom2, #nb2
+                     ziformula = ~ 1)
+```
+
+```{r}
+summary(fit_nb2_corr)
+summary(fit_nb2)
+
+AICtab(fit_nb2_corr, 
+       fit_pois_corr,
+       fit_pois,
+       fit_nb2)
+```
+
+
+
+```{r glmmTMB models, echo = T, warning=FALSE}
+
+
+
+fit_zip0 <- glmmTMB(N ~ 1 +                                                    # Null
+                     Location +                                               # Location
+                     time_cts +                                               # Continuous time variable
+                     (1|Specie.Code:Location) +                               # Species-level intercept
+                     (time_cts + 0|Specie.Code:Location) +
+                     offset(log(tot_net_hours)),
+                   family = poisson,
+                   ziformula = ~1,
+                   data = ecuador)
+
+# not run by EM
+fit_nb10 <- glmmTMB(N ~ 1 +                                                    # Null
+                     Location +                                               # Location
+                     time_cts +                                               # Continuous time variable
+                     (1|Specie.Code:Location) +                               # Species-level intercept'
+                     (time_cts + 0|Specie.Code:Location) +
+                     offset(log(tot_net_hours)),
+                   family = nbinom1,
+                   data = ecuador)
+
+fit_nb20 <- glmmTMB(N ~ 1 +                                                    # Null
+                     Location +                                               # Location
+                     time_cts +                                               # Continuous time variable
+                     (1|Specie.Code:Location) +                               # Species-level intercept'
+                     (time_cts + 0|Specie.Code:Location) +
+                     offset(log(tot_net_hours)),
+                   family = nbinom2,
+                   data = ecuador)
+
+fit_zinb20 <- glmmTMB(N ~ 1 +                                                  # Null
+                       Location +                                             # Location
+                       time_cts +                                             # Continuous time variable
+                       (1|Specie.Code:Location) +                             # Species-level intercept
+                       (time_cts + 0|Specie.Code:Location) +
+                       offset(log(tot_net_hours)),
+                     family = nbinom2,
+                     ziformula = ~ 1,
+                     data = ecuador)
+```
+
+
+## GLMMs + AR(1)
+
+
+CHECK AR-1 should be Specie.Code:Location
+but sometimes convergence problems
+
+```{r}
+overdisp_fun <- function(model) {
+    rdf <- df.residual(model)
+    rp <- residuals(model,type="pearson")
+    Pearson.chisq <- sum(rp^2)
+    prat <- Pearson.chisq/rdf
+    pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+    c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+```
+
+
+
+```{r AR-1 models, echo = T, warning=FALSE}
+fit_pois_corr0 <- glmmTMB(N ~ 1 +                                                   # Null
+                           Location +                                              # Location
+                           time_cts +                                              # Continuous time variable
+                           (1|Specie.Code:Location) +                              # Species-level intercept
+                           (time_cts + 0|Specie.Code:Location) +
+                           ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +   # Autocorrelation across time
+                           #(1|i) +                                               # Individual level random effect for pois-norm
+                           offset(log(tot_net_hours)),
+                         family = poisson,
+                         data = ecuador)
+overdisp_fun(fit_pois_corr0)
+
+## Major Convergence problems
+# fit_zip_corr0 <- glmmTMB(N ~ 1 +                                                    # Null
+#                           Location +                                               # Location
+#                           time_cts +                                               # Continuous time variable
+#                           (1|Specie.Code:Location) +                               # Species-level intercept
+#                           (time_cts + 0|Specie.Code:Location) +
+#                           ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +     # Autocorrelation across time
+#                           #(1|i) +                                                  # Individual level random effect for pois-norm
+#                           offset(log(tot_net_hours)),
+#                         family = poisson,
+#                         ziformula = ~1,
+#                         data = ecuador)
+
+summary(ecuador$tot.yrs)
+
+i4 <- which(ecuador$tot.yrs > 1)
+
+fit_nb1_corr0 <- glmmTMB(N ~ 1 +                                                    # Null
+                          #Location +                                               # Location
+                          time_cts +                                               # Continuous time variable
+                          (1|Specie.Code:Location) +                               # Species-level intercept
+                          (time_cts + 0|Specie.Code:Location) +
+                          ar1(as.ordered(time_cts) + 0|Specie.Code) +              # Autocorrelation across time
+                          offset(log(tot_net_hours)),
+                        family = nbinom1,
+                        data = ecuador)
+
+summary(fit_nb1_corr0)
+
+# fit_nb2_corr0 <- glmmTMB(N ~ 1 +                                   #  Intercept
+#                       Location +                                  # Location
+#                       time_cts +                                  # Continuous time variable
+#                       (1|Specie.Code:Location) +                  # Species-level intercept
+#                       (time_cts + 0|Specie.Code:Location) +       # Species-location slopes
+#                       offset(log(tot_net_hours)),                 # Offset for effort
+#                       ar1(as.ordered(time_cts) + 0|Specie.Code) + # Autocorrelation across time
+#                       family = nbinom2,
+#                       data = ecuador)
+
+
+fit_nb2_corr0 <- glmmTMB(N ~ 1 +                                                    # Null
+                          Location +                                               # Location
+                          time_cts +                                               # Continuous time variable
+                          (1|Specie.Code:Location) +                               # Species-level intercept
+                          (time_cts + 0|Specie.Code:Location) +
+                          ar1(as.ordered(time_cts) + 0|Specie.Code) + # Autocorrelation across time
+                          offset(log(tot_net_hours)),
+                        family = nbinom2,
+                        data = ecuador)
+
+# waring: "Model convergence problem; extreme or very small eigen values detected. See vignette('troubleshooting')"
+fit_zinb2_corr0 <- glmmTMB(N ~ 1 +                                                  # Null
+                            Location +                                             # Location
+                            time_cts +                                             # Continuous time variable
+                            (1|Specie.Code:Location) +                             # Species-level intercept
+                            (time_cts + 0|Specie.Code:Location) +
+                            ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +   # Autocorrelation across time
+                            offset(log(tot_net_hours)),
+                          family = nbinom2,
+                          ziformula = ~1,
+                          data = ecuador)
+```
+
+
+## Evalute model fit
+
+```{r Compare models, echo = T}
+
+# AIC
+aic <- AICtab(fit_pois,
+              fit_pois_corr, 
+              fit_zip, 
+              #fit_zip_corr,
+              #fit_nb1,
+              #fit_nb1_corr,
+              fit_nb2, 
+              fit_nb2_corr, 
+              fit_zinb2,
+              #fit_zinb2_corr # note: fit_zinb2_corr throws warning
+              base = TRUE,
+              mnames = c("Poisson",
+                         "Poisson AR-1",
+                         "Zero-inflated Poisson",
+                         "Negative-binomial2",
+                         "Neg-binomial2 AR-1",
+                         "Zero-inflated binomial2"),
+              logLik = TRUE)
+
+# BIC
+bic <- BICtab(fit_pois,
+              fit_pois_corr, 
+              fit_zip, 
+              #fit_zip_corr,
+              #fit_nb1,
+              #fit_nb1_corr,
+              fit_nb2, 
+              fit_nb2_corr, 
+              fit_zinb2,
+              #fit_zinb2_corr # note: fit_zinb2_corr throws warning
+              base = TRUE,
+              mnames = c("Poisson",
+                         "Poisson AR-1",
+                         "Zero-inflated Poisson",
+                         "Negative-binomial2",
+                         "Neg-binomial2 AR-1",
+                         "Zero-inflated binomial2"),
+              logLik = TRUE)
+
+# aic <- data.frame(dAIC = aic$dAIC, df = aic$df)
+# 
+# rownames(aic) <- c("fit_nb2_corr",
+#                    "fit_zinb2_corr",
+#                    "fit_zinb2", 
+#                    #"fit_zip_corr", 
+#                    "fit_nb2",
+#                    "fit_pois_corr", 
+#                    "fit_zip", 
+#                    "fit_pois")
+kable(aic, caption = "AIC for different models")
+
+# bic <- data.frame(dBIC = bic$dBIC, df = bic$df)
+# rownames(bic) <- c("fit_nb2_corr", "fit_nb2",
+#                    "fit_zinb2", #"fit_zip_corr", 
+#                    "fit_zinb2_corr",
+#                    "fit_pois_corr", "fit_zip", "fit_pois")
+kable(bic)
+```
+
+Save AIC table as .csv
+
+```{r}
+write.csv(aic, "aic_table.csv")
+write.csv(bic, "bic_table.csv")
+```
+

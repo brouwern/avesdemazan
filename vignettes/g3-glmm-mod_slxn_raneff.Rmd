@@ -1,0 +1,519 @@
+---
+title: "g) Model selection - random effects"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{g) Model selection - random effects}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Introduction
+
+This script assess how well the random effects work.
+
+
+
+## Preliminaries
+
+```{r setup}
+# Data and functions
+library(avesdemazan)
+
+# Model fitting
+library(lme4)       # glmer() for glmm
+library(glmmTMB)    # glmm with AR-1  
+# library(blme)       # bglmer (used?)
+
+# Model evaluation
+# library(afex)       # functionall_fit()
+# library(multcomp)   
+# library(emmeans)
+library(bbmle)      # aictab
+library(arm)        # se.fit()
+
+# Result visualization
+# library(ggplot2)    
+# library(ggstance)  
+# library(grid)
+# library(gridExtra)  
+
+#  markdown etc
+library(knitr)    
+```
+
+
+
+### Load data
+
+Load capture data. 
+
+```{r}
+data("ecuador")
+```
+
+Key columns for models run in tis script:
+```{r}
+head(ecuador[,1:9])
+```
+
+
+## Species-specifc models of captures
+
+### Formulas
+
+#### Possible random effects
+
+* There are two general classes of random effects to consider: **location-species**, and **time**
+* There's a tradeoff between what deserves to be a random effect, and what will actually converge
+
+**Species-Location:**
+
+* Species are (partially) crossed with location.  
+* There are only 3 locations so its difficult to use a random effect just for it.  
+* The easiest way to represent this is with a species:location random effect.
+
+**Time random effects:**
+
+* There are two possible random effects for time: sampling year and sampling sessions (~seasons)
+* There are only 3 sampling sessions so on their own these work best as a fixed effect, if included at all
+* However, we're using a autocorrelated AR-1 model, which I think should impact how we think about the time random effects
+* Year as a stand-alone random effect is problematic because it splits up adjacent sampling seasons that occur in different years, eg. 2010-Fall vs. 2011-Winter are adjacent to each other in the sequence of sampling dates but would be grouped into two different bins of the random effect.
+* I think what makes the most sense is a `year:sessions` random effect.  With this, all captures at approximately the same time will be induced to be correlated.  Within a nominal year the AR-1 should deal with correlation between successive sampling sessions (Winter-Spring, Spring-Fall).
+* It may be useful to include a `session` and `Location*session` FIXED effect to capture the fact there may be typical seasonal dynamics (e.g. altitudinal migration); however, this is likely to be species-specific.
+* In theory there might be `Species:session` or even S`pecies:session:Location` effects to account for species-specific variation in seasonal behavior, but this would be hard to deal with and would probably be mostly covered by the `Species:location random` effects and random slopes
+
+
+## Models
+
+### Model structures
+
+Model structure with NO autocorrelation
+```{r}
+form_glmm_no_autocorr_FULL_RF <- formula(N ~ 1 +          # Intercept
+                      Location +                  # Location FE; 3 level factor
+                      # session +                 # session FE
+                      # Location*session  +       # Location*session  FE
+                      time_cts +                  # Continuous time variable
+                      (1|Specie.Code) +         # species RE; DOES THIS CONVERGE?
+                      (1|Specie.Code:session) +         #DOES THIS CONVERGE?
+                      (1|year:session) +         # DOES THIS CONVERGE? 
+                      (1|Specie.Code:Location) +  # Species:location intercept
+                      (time_cts + 
+                       0|Specie.Code:Location) +   # Species-location RS
+                      offset(log(tot_net_hours))   # offset for effort
+                      )
+
+```
+
+Model structure WITH autocorrelation
+```{r}
+# NOTE: additional random effects will make it MUCH more difficult to calculate
+# SE!!!!!!!!!!!!!!!!!!!!!!
+form_glmm_ar1_FULL_RF <- formula(N ~ 1 +          # Intercept
+                      Location +                  # Location FE; 3 level factor
+                      # session +                 # session FE
+                      # Location*session  +       # Location*session  FE
+                      time_cts +                  # Continuous time variable
+                      (1|Specie.Code) +           # species RE
+                      
+                      # session effects    
+                      ## species:session; overfitting?  
+                      (1|Specie.Code:session) +   # 
+                      
+                      ## corr within the same sampling period    
+                      (1|year:session) +          # 
+                        
+                      # not necessary b/c dropped in rand slope statement?
+                      (1|Specie.Code:Location) +  # Species:location intercept 
+                     
+                       ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +
+                      
+                      (time_cts + 
+                       0|Specie.Code:Location) +   # Species-location RS
+                      
+                      offset(log(tot_net_hours))   # offset for effort
+                      )
+```
+
+
+
+Model structure WITH autocorrelation, AND only REs included in ES models:
+`(1|Specie.Code:Location) `
+
+This should be (mostly) compatible with all the subsequent code Es wrote, while the model formula above has additional REs which will need to be integrated into code the calculates e.g. standard errors.
+```{r}
+form_glmm_ar1_ES_RF <- formula(N ~ 1 +          # Intercept
+                      Location +                  # Location FE; 3 level factor
+                      # session +                 # session FE
+                      # Location*session  +       # Location*session  FE
+                      time_cts +                  # Continuous time variable
+                      #(1|Specie.Code) +           # species RE
+                      #(1|Specie.Code:session) +   # 
+                      #(1|year:session) +          # 
+                      (1|Specie.Code:Location) +  # <===Species:location intercept 
+                      ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +
+                      
+                      (time_cts + 
+                       0|Specie.Code:Location) +   # Species-location RS
+                      
+                      offset(log(tot_net_hours))   # offset for effort
+                      )
+```
+
+
+
+## Fit models
+
+### Poisson models 
+
+As demonstrated previously, Poisson model fit with no computational issues, except a model with only one random intercept (as was run by ES has potential issues with the Wald CI, which according to the diagnose() command should be cleared up by using other ways of formulating CIs..
+
+The code below runs poisson 
+
+* with and without ar1
+* with some random effects dropped
+* in equivalent forms set up by ES
+
+In order to probe the adequacy of the random effects structure and make sure there are no typos.
+
+
+```{r}
+fam_poisson <- "poisson"
+
+# full error structure, no autocorr
+fit_pois_FULL_RF <- glmmTMB(form_glmm_no_autocorr_FULL_RF,         
+                      family = fam_poisson,
+                      data = ecuador)
+diagnose(fit_nb2_FULL_RF)
+
+# full error structu, with autocorr
+fit_pois_corr_FULL_RF <- glmmTMB(form_glmm_ar1_FULL_RF,
+                        family = fam_poisson,
+                        data = ecuador)
+diagnose(fit_pois_corr_FULL_RF)
+
+
+# Drop  (1|Specie.Code)
+## No corr, drop (1|Specie.Code)
+fit_pois_no_spp_RF <- update(fit_pois_FULL_RF, . ~ . -(1|Specie.Code))
+diagnose(fit_pois_no_spp_RF)
+
+## with corr (1|Specie.Code)
+fit_pois_corr_no_spp_RF <- update(fit_pois_corr_FULL_RF, . ~ . - (1|Specie.Code))
+diagnose(fit_pois_corr_no_spp_RF)
+
+
+# Drop (1|year:session)
+## No corr - Drop (1|year:session)
+fit_pois_no_yearSession_RF <- update(fit_pois_FULL_RF, . ~ . - (1|year:session))
+diagnose(fit_pois_no_yearSession_RF)
+
+## with Corr,   Drop (1|year:session)
+fit_pois_corr_no_yearSession_RF <- update(fit_pois_corr_FULL_RF, . ~ . - (1|year:session))
+diagnose(fit_pois_corr_no_yearSession_RF)
+
+
+# Drop (1|year:Location)
+## No corr - Drop (1|year:Location)
+fit_pois_no_sppLoc_RF <- update(fit_pois_FULL_RF, . ~ . - (1 | Specie.Code:Location))
+diagnose(fit_pois_no_sppLoc_RF)
+
+## Corr -  Drop (1|year:Location)
+fit_pois_corr_no_sppLoc_RF <- update(fit_pois_corr_FULL_RF, . ~ . - (1| Specie.Code:Location))
+diagnose(fit_pois_corr_no_sppLoc_RF)
+
+
+
+
+
+
+
+
+
+
+# Drop 2 random effects
+## no corr - (1|year:session) - (1|Specie.Code) 
+fit_pois_no_yrSess_no_spp_RF <- update(fit_pois_FULL_RF, . ~ . - (1|year:session) - (1|Specie.Code) )
+diagnose(fit_pois_no_yrSess_no_spp_RF)
+
+## with corr
+fit_pois_corr_no_yrSess_no_spp_RF <- update(fit_pois_corr_FULL_RF, . ~ . - (1|year:session) - (1|Specie.Code))
+diagnose(fit_pois_corr_no_yrSess_no_spp_RF)
+
+
+
+
+# Drop 3 REs
+## Only random intercept in Emily's model was: 
+## (1|Specie.Code:Location) 
+
+##
+fit_pois_no_yrSess_no_spp_nosppSess <- update(fit_pois_FULL_RF, . ~ . - (1|year:session) 
+                                                 - (1|Specie.Code) 
+                                                 - (1|Specie.Code:session))
+diagnose(fit_pois_no_yrSess_no_spp_nosppSess)
+
+##
+fit_pois_corr_no_yrSess_no_spp_nosppSess <- update(fit_pois_corr_FULL_RF, . ~ . - (1|year:session) 
+                                                      - (1|Specie.Code) 
+                                                      - (1|Specie.Code:session))
+diagnose(fit_pois_corr_no_yrSess_no_spp_nosppSess)
+
+
+
+# should be same as previous model
+fit_pois_corr_ES_RF <- glmmTMB(form_glmm_ar1_ES_RF,
+                        family = fam_poisson,
+                        data = ecuador)
+
+AIC(fit_pois_corr_no_yrSess_no_spp_nosppSess)
+AIC(fit_pois_corr_ES_RF)
+
+```
+
+
+### Negative binomial models - confirm bad
+
+After updating minor mis-specificaiton of models fit by ES, nb2 models no longer converge or have Hessians etc that are ok.  The code before fits these nb2 models again to confirm this.  This was done in a previous script, but it repeated here to make sure that this is still true with the given the current random effects structure given above.  (If these models stop having issues, the code should be check to make sure the correct models are being run and no changes / typos have entered into the code)  
+
+
+```{r}
+# negative-binomial-2
+## Typically the best error structure
+fit_nb2_FULL_RF <- glmmTMB(form_glmm_no_autocorr_FULL_RF,         
+                      family = nbinom2,#nb2
+                      data = ecuador)
+diagnose(fit_nb2_FULL_RF)
+
+# throws error
+fit_nb2_corr_FULL_RF <- glmmTMB(form_glmm_ar1_FULL_RF,
+                        family = nbinom2,
+                        data = ecuador)
+diagnose(fit_nb2_corr_FULL_RF)
+
+x <- afex:all_fit(fit_nb2_corr_FULL_RF)
+
+
+# No corr, drop (1|Specie.Code)
+## no error
+fit_nb2_no_spp_RF <- update(fit_nb2_FULL_RF, . ~ . - (1|Specie.Code))
+diagnose(fit_nb2_no_spp_RF)
+
+# Drop  (1|Specie.Code)
+## throws convergence warning
+fit_nb2_corr_no_spp_RF <- update(fit_nb2_corr_FULL_RF, . ~ . - (1|Specie.Code))
+diagnose(fit_nb2_corr_no_spp_RF)
+
+  
+  
+# No corr - Drop (1|year:session)
+fit_nb2_no_yearSession_RF <- update(fit_nb2_FULL_RF, . ~ . - (1|year:session))
+diagnose(fit_nb2_no_yearSession_RF)
+
+# Corr -  Drop (1|year:session)
+fit_nb2_corr_yearSession_RF <- update(fit_nb2_corr_FULL_RF, . ~ . - (1|year:session))
+diagnose(fit_nb2_corr_yearSession_RF)
+```
+
+
+## Emily Scott's original models
+
+
+### nb models
+
+These models have no issues related to fitting them, but the second one is mis-specified as detailed elsewhere.  They are fit here for comparison purposes to determine how updating the model specification impacts model performance out output.
+
+```{r}
+# not autocorr
+## I believe there are no structural problems with this
+fit_nb2_emily <- glmmTMB(N ~ 1 +                                                    # Null
+                Location +                                               # Location
+                time_cts +                                               # Continuous time variable
+                     (1|Specie.Code:Location) +                               # Species-level intercept'
+                     (time_cts + 0|Specie.Code:Location) +
+                     offset(log(tot_net_hours)),
+                   family = nbinom2,
+                   data = ecuador)
+
+diagnose(fit_nb2_emily)
+
+# autocorr
+## NOTE - has 
+##  ar1(as.ordered(time_cts) + 0|Specie.Code)
+## instead of 
+##  ar1(as.ordered(time_cts) + 0|Specie.Code:Location)
+fit_nb2_corr_emily <- glmmTMB(N ~ 1 +                                           # Null
+                          Location +                                               # Location
+                          time_cts +                                       # Continuous time variable
+                          (1|Specie.Code:Location) +                       # Species-level intercept
+                          (time_cts + 0|Specie.Code:Location) +
+                          ar1(as.ordered(time_cts) + 0|Specie.Code) + # AR across time
+                          offset(log(tot_net_hours)),
+                        family = nbinom2,
+                        data = ecuador)
+diagnose(fit_nb2_corr_emily)
+```
+
+### poison models
+
+
+
+
+```{r}
+# not autocorr
+## I believe there are no structural problems with this
+fit_pois_emily <- glmmTMB(N ~ 1 +                                                    # Null
+                     Location +                                               # Location
+                     time_cts +                                               # Continuous time variable
+                     (1|Specie.Code:Location) +                               # Species-level intercept'
+                     (time_cts + 0|Specie.Code:Location) +
+                     offset(log(tot_net_hours)),
+                   family = poisson,
+                   data = ecuador)
+
+diagnose(fit_pois_emily)
+
+# autocorr
+## NOTE - has 
+##  ar1(as.ordered(time_cts) + 0|Specie.Code)
+## instead of 
+##  ar1(as.ordered(time_cts) + 0|Specie.Code:Location)
+fit_pois_corr_emily <- glmmTMB(N ~ 1 +                                           # Null
+                          Location +                                               # Location
+                          time_cts +                                       # Continuous time variable
+                          (1|Specie.Code:Location) +                       # Species-level intercept
+                          (time_cts + 0|Specie.Code:Location) +
+                          ar1(as.ordered(time_cts) + 0|Specie.Code) + # AR across time
+                          offset(log(tot_net_hours)),
+                        family = poisson,
+                        data = ecuador)
+diagnose(fit_pois_corr_emily)
+
+# update
+## NOTE: throws error regarding Walk CI
+fit_pois_corr_emily_fixed <- glmmTMB(N ~ 1 +                                           # Null
+                          Location +                                               # Location
+                          time_cts +                                       # Continuous time variable
+                          (1|Specie.Code:Location) +                       # Species-level intercept
+                          (time_cts + 0|Specie.Code:Location) +
+                          ar1(as.ordered(time_cts) + 0|Specie.Code:Location) + # Autocorrelation across time
+                          offset(log(tot_net_hours)),
+                        family = poisson,
+                        data = ecuador)
+diagnose(fit_pois_corr_emily_fixed)
+
+# this should be the same as other models ; this was run just to confirm 
+# my understanding of the model structure / confirm no typos
+AIC(fit_pois_corr_no_yrSess_no_spp_RF_nosppSess)
+AIC(fit_pois_corr_ES_RF)
+AIC(fit_pois_corr_emily_fixed)
+```
+
+
+
+
+
+
+
+
+## Output 
+
+### Compare all models
+
+Models fit by ES have high AIC.
+
+nb2 models are generally (always?) worse than corresponding poisson
+
+```{r}
+bbmle::AICctab(fit_nb2_emily,
+               fit_nb2_corr_emily,
+  
+               fit_nb2_no_spp_RF,
+               fit_nb2_corr_FULL_RF,   # was best, but mis-specified
+               fit_nb2_corr_no_spp_RF,
+               fit_nb2_no_yearSession_RF,
+               fit_nb2_corr_yearSession_RF,
+               fit_nb2_FULL_RF,
+               fit_pois_FULL_RF ,
+fit_pois_corr_FULL_RF ,
+fit_pois_no_spp_RF ,
+fit_pois_corr_no_spp_RF, 
+fit_pois_no_yearSession_RF, 
+fit_pois_corr_no_yearSession_RF ,
+fit_pois_no_sppLoc_RF ,
+fit_pois_corr_no_sppLoc_RF, 
+fit_pois_no_yrSess_no_spp_RF, 
+fit_pois_corr_no_yrSess_no_spp_RF,
+fit_pois_no_yrSess_no_spp_RF_nosppSess,
+fit_pois_corr_no_yrSess_no_spp_RF_nosppSess, 
+fit_pois_corr_ES_RF )
+```
+
+
+### Poisson models
+
+Full random effects structure works best
+
+```{r}
+bbmle::AICctab(fit_pois_corr_FULL_RF ,
+fit_pois_no_spp_RF ,
+fit_pois_corr_no_spp_RF, 
+fit_pois_no_yearSession_RF, 
+fit_pois_corr_no_yearSession_RF ,
+fit_pois_no_sppLoc_RF ,
+fit_pois_corr_no_sppLoc_RF, 
+fit_pois_no_yrSess_no_spp_RF, 
+fit_pois_corr_no_yrSess_no_spp_RF,
+fit_pois_no_yrSess_no_spp_RF_nosppSess,
+fit_pois_corr_no_yrSess_no_spp_RF_nosppSess, 
+fit_pois_corr_ES_RF
+)
+```
+
+
+
+## Save the formula objects
+
+Moving forward I'll work with two models:
+ 
+* full random effects
+* just spp-location fiexed effects
+
+The spp-location fixed effect model is the same structure worked with by ES,
+just with Poisson error and updated ar1() structure.  This model will be (mostly?)
+compatible with current code; the more complex model will require that code for calculating standard errors etc be updated.
+
+```{r}
+# Full model
+usethis::use_data(fit_pois_corr_FULL_RF, overwrite = TRUE)
+
+# Reduced model
+AIC(fit_pois_corr_ES_RF, 
+    fit_pois_corr_no_yrSess_no_spp_RF_nosppSess)
+
+fit_pois_corr_only_sppLoc <- fit_pois_corr_no_yrSess_no_spp_RF_nosppSess
+usethis::use_data(fit_pois_corr_only_sppLoc, overwrite = TRUE)
+
+# other models for comparison
+AIC(fit_nb2_corr_emily, 
+    fit_pois_corr_emily)
+fit_nb2_corr_misspec  <- fit_nb2_corr_emily
+fit_pois_corr_misspec <-  fit_pois_corr_emily
+
+
+usethis::use_data(fit_nb2_corr_misspec, overwrite = TRUE)
+usethis::use_data(fit_pois_corr_misspec, overwrite = TRUE)
+
+
+```
+
+

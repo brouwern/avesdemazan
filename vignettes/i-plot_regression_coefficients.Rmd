@@ -34,7 +34,7 @@ next plot uses time_cts !!!
 
 
 ```{r}
-ggplot(data = slopes, 
+ggplot(data = slopes_final, 
        aes(x = time_cts_tot, 
            y = spp2)) +
   geom_point(aes(x = time_cts_tot, 
@@ -45,7 +45,7 @@ ggplot(data = slopes,
                  y = spp2), 
              color = "red", 
              size = 1.5, 
-             data = subset(slopes, Sig == "Significant")) +
+             data = subset(slopes_final, Sig == "Significant")) +
   geom_segment(aes(x = time_lb2, 
                    xend = time_ub2, 
                    y = spp2, 
@@ -53,7 +53,7 @@ ggplot(data = slopes,
   geom_segment(aes(x = time_lb2, xend = time_ub2, 
                    y = spp2, yend = spp2), 
                color = "red", 
-               data = subset(slopes, Sig == "Significant")) +
+               data = subset(slopes_final, Sig == "Significant")) +
   facet_grid(~loc, 
              #labeller = labeller(loc = habitat_labels)
              ) +
@@ -61,7 +61,7 @@ ggplot(data = slopes,
                  color = "No Change", 
                  linetype = "No Change"), 
              size = 1) +
-  geom_vline(aes(xintercept = summary(fit_nb2_corr)[[6]]$cond[4,1],
+  geom_vline(aes(xintercept = summary(mod_working)[[6]]$cond[4,1],
                  color = "Population-level estimate", 
                  linetype = "Population-level estimate"), size = 1) +
   annotate("rect", xmin= -0.04758552, xmax= -0.00882848, 
@@ -95,7 +95,7 @@ original code from Emily had x = time_cts, not x = time_cts_tot
 
 
 ```{r, echo = T, fig.height = 7.25}
-figure1 <- ggplot(data = slopes, 
+figure1 <- ggplot(data = slopes_final, 
        aes(#x = time_cts, 
            x = time_cts_tot,
            y = Species_SciName2)) +
@@ -107,7 +107,7 @@ figure1 <- ggplot(data = slopes,
            x = time_cts_tot,
                  y = Species_SciName2), 
              color = "red", size = 1.5, 
-             data = subset(slopes, 
+             data = subset(slopes_final, 
                            Sig == "Significant")) +
   geom_segment(aes(x = time_lb2, 
                    xend = time_ub2, 
@@ -118,14 +118,14 @@ figure1 <- ggplot(data = slopes,
                    y = Species_SciName2, 
                    yend = Species_SciName2),
                color = "red", 
-               data = subset(slopes, Sig == "Significant")) +
+               data = subset(slopes_final, Sig == "Significant")) +
   facet_grid(~loc, 
             # labeller = labeller(loc = habitat_labels)
              ) +
   geom_vline(aes(xintercept = 0, 
                  color = "No Change",
                  linetype = "No Change"), size = 1) +
-  geom_vline(aes(xintercept = summary(fit_nb2_corr)[[6]]$cond[4,1], 
+  geom_vline(aes(xintercept = summary(mod_working)[[6]]$cond[4,1], 
                  color = "Population-level estimate", 
                  linetype = "Population-level estimate"), 
              size = 1) +
@@ -164,17 +164,17 @@ The above figure shows the estimated time effect for each species as well as the
 ## Plot 
 
 ```{r, echo = T}
-slopes2 <- slopes %>% 
+slopes_final2 <- slopes_final %>% 
   dplyr::select(time_cts, time_lb2, time_ub2, Species_SciName2, loc) %>% 
   mutate(CI = paste0("(",round(time_lb2,3),", ", round(time_cts,3), ", ", round(time_ub2,3), ")")) %>%
   dplyr::select(CI, Species_SciName2, loc) %>%
   group_by(Species_SciName2) %>% 
   spread(loc, CI)
-colnames(slopes2) <- c("Species", "Secondary forest (LLAV)", "Introduced forest (MAIN)", "Primary forest (MASE)")
-slopes2$`Secondary forest (LLAV)` <- ifelse(is.na(slopes2$`Secondary forest (LLAV)`) == TRUE, " ", slopes2$`Secondary forest (LLAV)`)
-slopes2$`Introduced forest (MAIN)` <- ifelse(is.na(slopes2$`Introduced forest (MAIN)`) == TRUE, " ", slopes2$`Introduced forest (MAIN)`)
-slopes2$`Primary forest (MASE)` <- ifelse(is.na(slopes2$`Primary forest (MASE)`) == TRUE, " ", slopes2$`Primary forest (MASE)`)
-kable(slopes2, caption = "Log scale species-level estimates \n (95% CI lower bound, estimate, 95% CI upper bound)")
+colnames(slopes_final2) <- c("Species", "Secondary forest (LLAV)", "Introduced forest (MAIN)", "Primary forest (MASE)")
+slopes_final2$`Secondary forest (LLAV)` <- ifelse(is.na(slopes_final2$`Secondary forest (LLAV)`) == TRUE, " ", slopes_final2$`Secondary forest (LLAV)`)
+slopes_final2$`Introduced forest (MAIN)` <- ifelse(is.na(slopes_final2$`Introduced forest (MAIN)`) == TRUE, " ", slopes_final2$`Introduced forest (MAIN)`)
+slopes_final2$`Primary forest (MASE)` <- ifelse(is.na(slopes_final2$`Primary forest (MASE)`) == TRUE, " ", slopes_final2$`Primary forest (MASE)`)
+kable(slopes_final2, caption = "Log scale species-level estimates \n (95% CI lower bound, estimate, 95% CI upper bound)")
 ```
 
 
@@ -183,29 +183,29 @@ Plot - ....
 
 ```{r, echo = T, fig.height = 7.0}
 # original in script from Emily
-# slopes$time_exp <- exp(slopes$time_cts)
-# slopes$lb2_exp <- exp(slopes$time_lb2)
-# slopes$ub2_exp <- exp(slopes$time_ub2)
+# slopes_final$time_exp <- exp(slopes_final$time_cts)
+# slopes_final$lb2_exp <- exp(slopes_final$time_lb2)
+# slopes_final$ub2_exp <- exp(slopes_final$time_ub2)
 
-slopes$time_exp <- exp(slopes$time_cts_tot)
-slopes$lb2_exp <- exp(slopes$time_lb2)
-slopes$ub2_exp <- exp(slopes$time_ub2)
+slopes_final$time_exp <- exp(slopes_final$time_cts_tot)
+slopes_final$lb2_exp <- exp(slopes_final$time_lb2)
+slopes_final$ub2_exp <- exp(slopes_final$time_ub2)
 time_cts_tot
 
-figure01 <- ggplot(data = slopes, 
+figure01 <- ggplot(data = slopes_final, 
        aes(x = time_exp, 
-           y = slopes$Species_SciName2)) +
+           y = slopes_final$Species_SciName2)) +
   geom_point(aes(x = time_exp, 
                  y = Species_SciName2), 
              color = "black", 
              size = 1.5) +
   geom_point(aes(x = time_exp, 
-                 y = Species_SciName2), color = "red", size = 1.5, data = subset(slopes, Sig == "Significant")) +
+                 y = Species_SciName2), color = "red", size = 1.5, data = subset(slopes_final, Sig == "Significant")) +
   geom_segment(aes(x = lb2_exp, xend = ub2_exp, y = Species_SciName2, yend = Species_SciName2)) +
-  geom_segment(aes(x = lb2_exp, xend = ub2_exp, y = Species_SciName2, yend = Species_SciName2), color = "red", data = subset(slopes, Sig == "Significant")) +
+  geom_segment(aes(x = lb2_exp, xend = ub2_exp, y = Species_SciName2, yend = Species_SciName2), color = "red", data = subset(slopes_final, Sig == "Significant")) +
   facet_grid(~loc, labeller = labeller(loc = habitat_labels)) +
   geom_vline(aes(xintercept = 1, color = "No Change", linetype = "No Change"), size = 1) +
-  geom_vline(aes(xintercept = exp(summary(fit_nb2_corr)[[6]]$cond[4,1]), color = "Population-level estimate", linetype = "Population-level estimate"), size = 1) +
+  geom_vline(aes(xintercept = exp(summary(mod_working)[[6]]$cond[4,1]), color = "Population-level estimate", linetype = "Population-level estimate"), size = 1) +
   annotate("rect", xmin = exp(-0.04758552), xmax = exp(-0.00882848), ymin=-Inf, ymax=Inf, alpha=0.2, fill="blue") +
   xlab("Species-level time coefficient \n") + ylab("Species Code") +
   scale_colour_manual(name = "Guide", values = c("No Change" = "black", "Population-level estimate" = "blue")) +
@@ -224,7 +224,7 @@ figure01
 Save plot
 ```{r}
 scaling <- 0.65
-ggsave(plot = figure01, file = "figure01_species_slopes.png",height = 11*scaling, width = 9*scaling)
+ggsave(plot = figure01, file = "figure01_species_slopes_final.png",height = 11*scaling, width = 9*scaling)
 ```
 
 
@@ -243,42 +243,42 @@ The points and bands correspond to species-level estimates and 95% confidence in
 
 
 
-## Slopes table
+## slopes_final table
 
 ```{r, echo = T}
-slopes3 <- slopes %>% 
+slopes_final3 <- slopes_final %>% 
   dplyr::select(time_exp, lb2_exp, ub2_exp, Species_SciName2, loc) %>% 
   mutate(CI = paste0("(",round(lb2_exp,3),", ", round(time_exp,3), ", ", round(ub2_exp,3), ")")) %>%
   dplyr::select(CI, Species_SciName2, loc) %>%
   group_by(Species_SciName2) %>% 
   spread(loc, CI)
-colnames(slopes3) <- c("Species", 
+colnames(slopes_final3) <- c("Species", 
                        "SHRUB",  #
                        "MIXED", #
                        "NATIVE")    #
 
-# slopes3$`Secondary forest (LLAV)` <- ifelse(is.na(slopes3$`Secondary forest (LLAV)`) == TRUE,
+# slopes_final3$`Secondary forest (LLAV)` <- ifelse(is.na(slopes_final3$`Secondary forest (LLAV)`) == TRUE,
 #                                             " ", 
-#                                             slopes3$`Secondary forest (LLAV)`)
-# slopes3$`Introduced forest (MAIN)` <- ifelse(is.na(slopes3$`Introduced forest (MAIN)`) == TRUE, 
+#                                             slopes_final3$`Secondary forest (LLAV)`)
+# slopes_final3$`Introduced forest (MAIN)` <- ifelse(is.na(slopes_final3$`Introduced forest (MAIN)`) == TRUE, 
 #                                              " ", 
-#                                              slopes3$`Introduced forest (MAIN)`)
-# slopes3$`Primary forest (MASE)` <- ifelse(is.na(slopes3$`Primary forest (MASE)`) == TRUE, 
+#                                              slopes_final3$`Introduced forest (MAIN)`)
+# slopes_final3$`Primary forest (MASE)` <- ifelse(is.na(slopes_final3$`Primary forest (MASE)`) == TRUE, 
 #                                           " ", 
-#                                           slopes3$`Primary forest (MASE)`)
+#                                           slopes_final3$`Primary forest (MASE)`)
 
 
-slopes3$SHRUB <- ifelse(is.na(slopes3$SHRUB) == TRUE,
+slopes_final3$SHRUB <- ifelse(is.na(slopes_final3$SHRUB) == TRUE,
                                             " ", 
-                                            slopes3$SHRUB)
-slopes3$MIXED <- ifelse(is.na(slopes3$MIXED) == TRUE, 
+                                            slopes_final3$SHRUB)
+slopes_final3$MIXED <- ifelse(is.na(slopes_final3$MIXED) == TRUE, 
                                              " ", 
-                                             slopes3$MIXED)
-slopes3$NATIVE <- ifelse(is.na(slopes3$NATIVE) == TRUE, 
+                                             slopes_final3$MIXED)
+slopes_final3$NATIVE <- ifelse(is.na(slopes_final3$NATIVE) == TRUE, 
                                           " ", 
-                                          slopes3$NATIVE)
+                                          slopes_final3$NATIVE)
 
-kable(slopes3, caption = "Transformed species-level estimates (95% CI lower bound, estimate, 95% CI upper bound)")
+kable(slopes_final3, caption = "Transformed species-level estimates (95% CI lower bound, estimate, 95% CI upper bound)")
 ```
 
 The population-level estimate is (0.954, 0.972, 0.991). That is, we estimate a 2.8\% decrease in capture rates between years (95\% CI: 0.9-4.6\%).

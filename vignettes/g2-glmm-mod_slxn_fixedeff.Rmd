@@ -1,0 +1,37 @@
+---
+title: "g-glmm-mod_slxn_fixedeff"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{g-glmm-mod_slxn_fixedeff}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+## Selection on fixed effects
+
+NOTE: a time_cts*Location  term would yield an average trend for a site.
+The random slopes are already species:locations
+
+However, these models don't converge.
+
+```{r eval = F}
+
+# convergence problems
+x2a <- update(best_randslopes, . ~ . + time_cts*Location)
+x2b <- update(best_randslopes, . ~ . + time_cts*Location)
+
+bbmle::AICtab(x2a, 
+       best_randslopes)
+
+```

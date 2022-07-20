@@ -36,27 +36,31 @@ library(here)
 
 ## Purpose of script
 
-1. merge in species traits (e.g. diet, weight class, etc)
-1. set up continous time variable
-1. save as .RData for use in main regression analysis
-1. summarize data into total captures per sessions (pools all species into "community abundance")
+1. merge in **species traits** (e.g. diet, weight class, etc)
+1. set up **continuous time** variable
+1. save as **.RData** for use in main regression analysis
+1. summarize data into **total captures** per sessions (pools all species into "community abundance")
 
 
 ## Load data
 
+Data is stored within the `avesdemazan` package
 ```{r}
 data("ecuador_5")
 
 ## Species list
 data("Ecuador_Species_List")
+
+# rename data object
+## TODO() update object names / code so this isn't necessary
 spp_trt <- Ecuador_Species_List
 ```
 
 
 
-## Add species traits
+## Add species traits to dataframe
 
-Species traits stored in Ecuador_Species_List, which is re-saved as spp_trt upon loading.
+Species traits stored in `Ecuador_Species_List`, which is re-saved as `spp_trt` upon loading (above).
 
 ```{r Species list, warning = FALSE, echo = T}
 # Species list (mist net)
@@ -142,16 +146,16 @@ ecuador_5 <- ecuador_5 %>% filter(time_cts < 10.3 | time_cts > 10.4)
 
 
 Time organized in 1/3 of years.  
-year 1, session PRIMERA = 0.33 year
-year 1, session SEGUNDA = 0.667 year
-year 1, session TERCERA = 1.909 year
-year 1, session SEGUNDA = 1.33 year
+* year 1, session PRIMERA = 0.33 year
+* year 1, session SEGUNDA = 0.667 year
+* year 1, session TERCERA = 1.909 year
+* year 2, session SEGUNDA = 1.33 year
 
 ```{r}
 summary(factor(ecuador_5$time_cts[1:10]))
 ```
 
-This plot shows how it works
+This plot implies how it works
 ```{r}
 par(mfrow = c(1,2))
 plot(time_cts ~ year_cent, data = ecuador_5)
@@ -181,9 +185,9 @@ write.csv(ecuador_5, file = file.full, row.names = F)
 
 # save .RData to data folder
 ecuador <- ecuador_5
-# usethis::use_data(ecuador, overwrite = TRUE)
-# make_dateset_helpfile(dataset = ecuador,
-#                       dataset_name = "ecuador")
+usethis::use_data(ecuador, overwrite = TRUE)
+make_dateset_helpfile(dataset = ecuador,
+                      dataset_name = "ecuador")
 
 ```
 

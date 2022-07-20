@@ -1,0 +1,100 @@
+---
+title: "temp"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{temp}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(avesdemazan)
+```
+
+## Data 
+
+Get the best model
+
+
+```{r}
+data(best_randslopes)
+```
+
+
+
+
+### Coefficinets table - untransformed
+
+Get coefficients and make table
+
+```{r, echo = T}
+best_fit_tab <- as.data.frame(summary(best_randslopes)$coefficients$cond)
+
+rownames(best_fit_tab) <- c("Intercept", "Location (MAIN)", "Location (MASE)", "Time")
+
+kable(best_fit_tab, caption = "Model output on original (log) scale")
+
+```
+
+
+### Coefficinets table - transformed?
+
+```{r, echo = T}
+best_fit_tab <- as.data.frame(summary(best_randslopes)$coefficients$cond)
+rownames(best_fit_tab) <- c("Intercept", "Location (MAIN)", "Location (MASE)", "Time")
+best_fit_tab2 <- best_fit_tab
+
+# Point estimates
+best_fit_tab2$EstimateExp <- NA
+
+best_fit_tab2$EstimateExp[1] <- best_fit_tab2$Estimate[1]
+best_fit_tab2$EstimateExp[2] <- best_fit_tab2$Estimate[1] + best_fit_tab2$Estimate[2]
+best_fit_tab2$EstimateExp[3] <- best_fit_tab2$Estimate[1] + best_fit_tab2$Estimate[3]
+
+# SE estimates
+
+### GET vcov matrix
+vcov <- matrix(unlist(vcov(best_randslopes)), nrow = 4)
+
+best_fit_tab2$SE <- NA
+
+best_fit_tab2$SE[1] <- sqrt(vcov[1,1])
+best_fit_tab2$SE[2] <- sqrt(vcov[1,1] + vcov[2,2] + 2*vcov[1,2])
+best_fit_tab2$SE[3] <- sqrt(vcov[1,1] + vcov[3,3] + 2*vcov[1,3])
+
+# Confidence intervals
+## Lower bound & upper bound
+best_fit_tab2$LB <- round(exp(best_fit_tab2$EstimateExp - 1.96*best_fit_tab2$SE), 6)*1000
+best_fit_tab2$UB <- round(exp(best_fit_tab2$EstimateExp + 1.96*best_fit_tab2$SE), 6)*1000
+
+## Calculate confidence interval
+best_fit_tab2$CI <- paste0("(", best_fit_tab2$LB, ", ", best_fit_tab2$UB, ")")
+
+# Point Estimate
+best_fit_tab2$EstimateExp <- round(exp(best_fit_tab2$EstimateExp), 6) * 1000
+
+# Drop time effect row
+best_fit_tab2 <- best_fit_tab2[-4,]
+
+# Select point estimate and 95% CI columns
+best_fit_tab2 <- best_fit_tab2[,c(5,9)]
+
+# Format
+rownames(best_fit_tab2) <- c("Secondary forest (LLAV)", "Introduced forest (MAIN)", "Primary forest (MASE)")
+colnames(best_fit_tab2) <- c("Baseline captures per 1,000 net hours", "95% Confidence Interval")
+kable(best_fit_tab2, caption = "Transformed model estimates")
+```
+
+table produced above is just intercept terms for main effects - not needed (?)
+
+
+
+We estimate that the baseline (time = 0) capture rate per 1,000 net hours is 7.191 (95\% CI (5.383, 9.606)) in secondary forest, 5.820 (95\% CI (4.226, 8.015)) in introduced forest, and 4.423 (95\% CI (3.153, 6.206)) in primary forest. We estimate a 2.8\% (95\% CI (0.9\%, 4.6\%)) decrease in capture rate between years in all habitats. **
+

@@ -1,0 +1,157 @@
+---
+title: "Untitled"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+n <- 6                                              ## Number of time points
+x <- MASS::mvrnorm(mu = rep(0,n),
+             Sigma = .7 ^ as.matrix(dist(1:n)) )    ## Simulate the process using the MASS package
+y <- x + rnorm(n)  
+```
+
+```{r}
+
+times <- factor(1:n, levels=1:n)
+levels(times)
+```
+
+
+```{r}
+group <- factor(rep(1,n))
+```
+
+```{r}
+dat0 <- data.frame(y,times,group)
+```
+
+```{r}
+x <- glmmTMB(y ~ ar1(times + 0 | group), data=dat0)
+
+summary(x)
+
+```
+
+```{r}
+simGroup <- function(g, n=6, rho=0.7) {
+    x <- mvrnorm(mu = rep(0,n),
+             Sigma = rho ^ as.matrix(dist(1:n)) )   ## Simulate the process
+    y <- x + rnorm(n)                               ## Add measurement noise
+    times <- factor(1:n)
+    group <- factor(rep(g,n))
+    data.frame(y, times, group)
+}
+simGroup(1)
+
+dat1 <- do.call("rbind", lapply(1:1000, simGroup) )
+```
+
+
+```{r}
+dat1$times.num <- as.numeric(dat1$times)
+(fit.ar1 <- glmmTMB(y ~ times.num + ar1(times + 0 | group), data=dat1))
+summary(fit.ar1)
+```
+
+
+
+
+
+```{r}
+form_glmm_ar1_1Loc <- formula(N ~ 1 +          # Intercept
+                                time_cts +
+                      (1|Specie.Code) +           # species RE
+                        
+                      # overfit?
+                      (1|Specie.Code:session) +   
+                      (1|year:session) +          # 
+                       ar1(as.ordered(time_cts) + 0|Specie.Code) +
+                      
+                      (time_cts + 
+                       0|Specie.Code) +   # Species-location RS
+                      
+                      offset(log(tot_net_hours))   # offset for effort
+                      )
+```
+
+
+```{r}
+i.mixed <-  which(ecuador$Location == "MIXED")   # marg sig
+i.shrub <-  which(ecuador$Location == "SHRUB")   # NS, nb2 has trouble
+i.native <-  which(ecuador$Location == "NATIVE") # sig, nb2 has trouble
+
+i.working <- i.native
+
+fam_poisson <- "poisson"
+fam_negbin2  <- "nbinom2"
+
+fit_models <- function(dat, i, form, loc){
+  pois <- glmmTMB(form,
+                        family = "poisson",
+                        data = dat[i, ])
+  nb2 <- try(glmmTMB(form,
+                        family = "nbinom2",
+                        data = dat[i, ]))
+  mods <- list(pois,nb2)
+  names(mods) <- c(paste("pois",loc,sep = "."),
+                  paste("nb2",loc,sep = "."))
+  
+  return(mods)
+}
+
+mods.mixed <- fit_models(dat = ecuador,
+           i = i.mixed,
+           form = form_glmm_ar1_1Loc ,
+           loc = "mixed")
+summary(mods.mixed[[1]])
+summary(mods.mixed[[2]])
+
+mods.shrub <- fit_models(dat = ecuador,
+           i = i.shrub,
+           form = form_glmm_ar1_1Loc ,
+           loc = "shrub")
+summary(mods.shrub[[1]])
+summary(mods.shrub[[2]])
+
+
+mods.native <- fit_models(dat = ecuador,
+           i = i.native,
+           form = form_glmm_ar1_1Loc ,
+           loc = "native")
+summary(mods.native[[1]])
+summary(mods.native[[2]])
+
+```
+
+```{r}
+boot_fnxn_randslopes_combo_1site <- function(x) 
+  {
+  fixedef <- fixef(x)$cond["time_cts"]
+  randslope <- ranef(x)$cond$`Specie.Code`$time_cts
+  
+  combo <- fixedef + randslope
+}
+```
+
+```{r}
+# mods.shrub
+mod <- (mods.shrub[[1]])
+summary(mod)
+fixef(mod)$cond["time_cts"]
+ranef(mod)$cond$`Specie.Code`$time_cts
+simulate(mod)
+refit(object = mod,newresp = simulate(mod))
+
+boot_mixed_pois <- lme4::bootMer(mods.mixed[[1]], 
+                    FUN=boot_fnxn_randslopes_combo_1site,
+                    nsim=30, .progress="txt",
+                    use.u = FALSE, 
+                    re.form = NA)
+```
+

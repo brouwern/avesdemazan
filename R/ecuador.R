@@ -2,7 +2,7 @@
 #'
 #' Short description of data . . . 
 #'
-#' @format A data frame with 6860 rows and 21 column(s)
+#' @format A data frame with 1949 rows and 22 column(s)
 #' \describe{
 #'   \item{Specie.Code}{Describe column Specie.Code here . . .}
 #'   \item{X}{Describe column X here . . .}
@@ -25,6 +25,7 @@
 #'   \item{Rarity_Local_Abund}{Describe column Rarity_Local_Abund here . . .}
 #'   \item{Rarity_Neotrop_Abund}{Describe column Rarity_Neotrop_Abund here . . .}
 #'   \item{ind}{Describe column ind here . . .}
+#'   \item{time_cts}{Describe column time_cts here . . .}
 #' }
 #' @source \url{http://www.whereyougotthedata.com/}
 #'

@@ -1,0 +1,221 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+fm1 <- glmmTMB(count~mined+(1|spp),
+                  ziformula=~mined,
+                  data=Salamanders,
+                  family=nbinom1)
+
+
+## single parametric bootstrap step: refit with data simulated from original model
+fm1R <- refit(fm1, simulate(fm1)[[1]])
+   
+## the bootMer function from lme4 provides a wrapper for doing multiple refits
+##   with a specified summary function
+fixef(fm1R)
+fixef(fm1R)$zi
+
+b1 <- lme4::bootMer(fm1, FUN=function(x) fixef(x)$zi, nsim=5, .progress="txt")
+
+   if (requireNamespace("boot")) {
+      boot:boot.ci(b1,type="perc")
+    }
+```
+
+
+
+Simulate from model
+```{r}
+simulate(best_randslopes)
+```
+
+
+Get output as vector
+```{r}
+simulate(best_randslopes)[[1]]
+```
+
+
+Refit
+```{r}
+best_randslopes_refit <- refit(best_randslopes, simulate(best_randslopes)[[1]])
+
+fixef(best_randslopes_refit)
+
+```
+
+bootstrap fixedeffects 
+
+boot.ci has 
+index = 1:min(2,length(boot.out$t0))
+
+use.u	
+logical, indicating whether the spherical random effects should be simulated / bootstrapped as well. If TRUE, they are not changed, and all inference is conditional on these values. If FALSE, new normal deviates are drawn (see Details).
+
+re.form	
+formula, NA (equivalent to use.u=FALSE), or NULL (equivalent to use.u=TRUE): alternative to use.u for specifying which random effects to incorporate. See simulate.merMod for details.
+
+
+```{r}
+fixef(best_randslopes_refit)$cond[1]
+
+best_randslopes <- fit_pois_corr_FULL_RF
+
+boot_fnxn_fixef <- function(x)
+  {
+  fixef(x)$cond
+  }
+
+x1 <- lme4::bootMer(best_randslopes, 
+                    FUN = boot_fnxn_fixef,
+                    nsim=3, .progress="txt",
+                    use.u = FALSE, 
+                    re.form = NA)
+boot.ci(x1, type = "norm")  #
+boot.ci(x1, type = "basic") # warning "extreme order statistics used as endpoints"
+boot.ci(x1, type = "perc")  # warning "extreme order statistics used as endpoints"
+# boot.ci(x1, type = "stud")  # error
+# boot.ci(x1, type = "bca")   # error
+``` 
+
+
+```{r}
+ranef(best_randslopes)$cond$`Specie.Code:Location`$time_cts
+```
+
+## Functions
+
+```{r}
+boot_fnxn_fixefs <- function(x)
+  {
+  fixef(x)$cond
+  }
+
+boot_fnxn_randefs <- function(x) 
+  {
+  ranef(x)$cond$`Specie.Code:Location`$time_cts
+}
+
+boot_fnxn_randslopes_combo <- function(x) 
+  {
+  fixedef <- fixef(x)$cond["time_cts"]
+  randslope <- ranef(x)$cond$`Specie.Code:Location`$time_cts
+  
+  combo <- fixedef + randslope
+}
+```
+
+
+## Bootstrap fixeffect
+```{r}
+fixef(best_randslopes)$cond["time_cts"]
+```
+
+
+```{r}
+boot_fixef <- lme4::bootMer(best_randslopes, 
+                    FUN=boot_fnxn_fixefs,
+                    nsim=500, .progress="txt",
+                    use.u = FALSE, 
+                    re.form = NA)
+
+
+```
+
+
+## Bootstrap randomeffect
+
+```{r}
+ranef(best_randslopes)$cond$`Specie.Code:Location`$time_cts
+```
+
+```{r}
+boot_randeff <- lme4::bootMer(best_randslopes, 
+                    FUN=boot_fnxn_randefs,
+                    nsim=500, .progress="txt",
+                    use.u = FALSE, 
+                    re.form = NA)
+```
+
+
+
+```{r}
+boot_randslopes_combo <- lme4::bootMer(best_randslopes, 
+                    FUN=boot_fnxn_randslopes_combo,
+                    nsim=500, .progress="txt",
+                    use.u = FALSE, 
+                    re.form = NA)
+```
+
+```{r}
+x1$t0
+x1$t
+```
+
+```{r}
+boot.ci(boot_randslope, type = "norm", index = 1)  #
+boot.ci(boot_randslope, type = "norm", index = 2)  #
+boot.ci(x1, type = "norm", index = 3)  #
+
+boot.ci(x1, type = "basic") # warning "extreme order statistics used as endpoints"
+boot.ci(x1, type = "perc")  #
+```
+
+```{r}
+ head(as.data.frame(x1))
+```
+
+
+```{r}
+B_best_randslopies <- ranef(best_randslopes)$cond$`Specie.Code:Location`$time_cts
+B_labels <- rownames(ranef(best_randslopes)$cond$`Specie.Code:Location`)
+B.n <- length(B_best_randslopies)
+
+```
+
+```{r}
+get_CI <- function(x,w) {
+   b1 <- boot.ci(x,index=w, type = "norm")
+   ## extract info for all CI types
+   tab <- t(sapply(b1[-(1:3)],function(x) tail(c(x),2)))
+   ## combine with metadata: CI method, index
+   tab <- cbind(w,rownames(tab),as.data.frame(tab))
+   colnames(tab) <- c("i","meth","lwr","upr")
+   tab
+}
+## do it for both parameters
+x <- do.call(rbind,lapply(1:B.n,get_CI,x=boot_randslopes_combo))
+
+which(sign(x$lwr) == sign(x$upr))
+
+
+build_CI_tab <- function(boot_out, betas, B_labels){
+  CIs <- do.call(rbind,lapply(1:B.n,get_CI,x=boot_out))
+  beta.sign <- ifelse(betas < 0, "-", "+")
+  sig <- ifelse(sign(CIs$lwr) == sign(CIs$upr),"*","")
+  CI_tab <- cbind(B_labels,
+                  betas,
+                  CIs[3:4],
+                  beta.sign,
+                  sig,CIs[1:2])
+  rownames(CI_tab) <- NULL
+  CI_tab$method <- gsub("normal","norm",CI_tab$method)
+  return(CI_tab)
+}
+
+build_CI_tab(boot_randslopes_combo, B_best_randslopies, B_labels)
+
+
+
+```
+
+
+```{r}
+x1$t0
+```
+

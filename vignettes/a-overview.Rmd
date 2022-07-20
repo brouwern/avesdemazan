@@ -20,9 +20,11 @@ knitr::opts_chunk$set(
 library(avesdemazan)
 ```
 
+## Files
 
 Files received from Emily Morrison via email.  EM indicated  
-"You should only need
+
+> "You should only need
 Ecuador_Analysis_DataPrep.Rmd
 Ecuador_Analysis.Rmd
 Net_hours.csv
@@ -44,7 +46,7 @@ Data provided:
 
 
 
-# Files and dataframes used
+## Files and dataframes used
 
 Mist net data description: ecuador_working.csv
 used to make ecuador_id dataframe

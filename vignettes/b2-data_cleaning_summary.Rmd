@@ -19,5 +19,5 @@ library(avesdemazan)
 ```
 
 * Initilas data clean was done by Emily Scott in a set of scripts that as of June 4 2021 are integrated into this package.  
-* Cleaning began with originial individual-level data on birds from database provided by XXXXXX
-* Final cleaning is carried out in the intial following vignettes prior to analysis.
+* Cleaning began with original individual-level data on birds from Access database provided by Boris
+* Final cleaning is carried out in the  following vignettes prior to analysis.

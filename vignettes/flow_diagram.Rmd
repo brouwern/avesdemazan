@@ -1,0 +1,54 @@
+---
+title: "Untitled"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# install.packages("DiagrammR")
+remotes::install_github("rich-iannone/DiagrammeR")
+
+library(DiagrammeR)
+```
+
+```{r}
+grViz(diagram = "digraph flowchart {
+  node [fontname = arial, shape = oval]
+  tab1 [label = '@@1']
+  tab2 [label = '@@2']
+  tab3 [label = '@@3']
+  tab4 [label = '@@4']
+  tab5 [label = '@@5']
+  tab6 [label = '@@6']
+  tab7 [label = '@@7']
+  tab8 [label = '@@8']
+  tab9 [label = '@@9']
+  
+  tab1 -> tab2 -> tab3; 
+  tab3 -> tab7;
+  tab3 -> tab4;
+  tab3 -> tab5;
+  tab3 -> tab6;
+  
+  tab7 -> tab8;
+  tab7 -> tab9
+}
+  
+  [1]: '(Data cleaning - primary)'
+  [2]: 'Data cleaning - final'    
+  [3]: 'Model slxn'
+  [4]: 'Model slxn: error structure'    
+  [5]: 'Model slxn: fixed effects'    
+  [6]: 'Model slxn: random effects'   
+  [7]: 'Best model'    
+  [8]: 'Fixed effects' 
+  [9]: 'Random effects' 
+  ")
+```
+

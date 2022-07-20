@@ -1,0 +1,244 @@
+---
+title: "Untitled"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Data and functions
+library(avesdemazan)
+
+# Model fitting
+library(lme4)       # glmer() for glmm
+library(glmmTMB)    # glmm with AR-1  
+# library(blme)       # bglmer (used?)
+
+# Model evaluation
+# library(afex)       # functionall_fit()
+# library(multcomp)   
+# library(emmeans)
+library(bbmle)
+
+data("ecuador")
+```
+
+```{r}
+# NOTE: additional random effects will make it MUCH more difficult to calculate
+# SE!!!!!!!!!!!!!!!!!!!!!!
+form_glmm_ar1_FULL_RF <- formula(N ~ 1 +          # Intercept
+                      Location +                  # Location FE; 3 level factor
+                      # session +                 # session FE
+                      # Location*session  +       # Location*session  FE
+                      time_cts +                  # Continuous time variable
+                      (1|Specie.Code) +           # species RE
+                      
+                      # session effects    
+                      ## 1a)species:session; 
+                      ###  OVERFITTING?  
+                      ### this would have to due to biological factors like
+                      ### altitudinal migration or other behaviors
+                      ### that are consistent 
+                      ### WITHIN a species ACRROSS the sites  
+                      (1|Specie.Code:session) +   
+                      
+                      ### 1b)spp:sess:loc NEW
+                      ### OVERFITTING?
+                      ### location-specific behaviors
+                      (1|Specie.Code:session:Location) +
+                      
+                      ### 2a) year:sess  
+                      ### corr within the same sampling period    
+                      (1|year:session) +          # 
+                      
+                      ### 2b) year:sess:loc NEW    
+                      (1|year:session:Location) +          #   
+                        
+                      # not necessary b/c dropped in rand slope statement?
+                      (1|Specie.Code:Location) +  # Species:location intercept 
+                     
+                       ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +
+                      
+                      (time_cts + 
+                       0|Specie.Code:Location) +   # Species-location RS
+                      
+                      offset(log(tot_net_hours))   # offset for effort
+                      )
+```
+
+
+
+
+```{r}
+fam_poisson <- "poisson"
+fit_pois_corr_FULL_RF <- glmmTMB(form_glmm_ar1_FULL_RF,
+                        family = fam_poisson,
+                        data = ecuador)
+diagnose(fit_pois_corr_FULL_RF)
+
+fit_pois_corr_orig <- update( fit_pois_corr_FULL_RF, . ~ .
+                              - (1|Specie.Code:session:Location) - (1|year:session:Location))
+
+fit_pois_corr_no_sppSess <- update(fit_pois_corr_FULL_RF, 
+                                   . ~ . -(1|Specie.Code:session))
+fit_pois_corr_no_sppSessLoc <- update(fit_pois_corr_FULL_RF, 
+                                   . ~ . -(1|Specie.Code:session:Location))
+
+fit_pois_corr_no_yrSess <- update(fit_pois_corr_FULL_RF, 
+                                   . ~ . -(1|year:session))
+
+fit_pois_corr_no_yrSessLoc <- update(fit_pois_corr_FULL_RF, 
+                                   . ~ . -(1|year:session:Location))
+
+
+fit_pois_drop_randslope <- update(fit_pois_corr_FULL_RF,
+                                  . ~ . -(time_cts + 0|Specie.Code:Location))
+
+fit_pois_drop_randslope_from_orig <- update(fit_pois_corr_FULL_RF,
+                                  . ~ . -(time_cts + 0|Specie.Code:Location)- (1|Specie.Code:session:Location) - (1|year:session:Location))
+
+bbmle::AICtab(fit_pois_corr_FULL_RF,
+              fit_pois_corr_orig,
+              fit_pois_corr_no_sppSess,
+              fit_pois_corr_no_sppSessLoc,
+              
+              fit_pois_corr_no_yrSess,
+              fit_pois_corr_no_yrSessLoc,
+              
+              fit_pois_drop_randslope,
+              fit_pois_drop_randslope_from_orig)
+```
+
+
+
+```{r}
+cbind(new = fixef(fit_pois_corr_FULL_RF)$cond,
+      orig = fixef(fit_pois_corr_orig)$cond)
+```
+
+
+Conditional model:
+ Groups                       Name                                  Variance Std.Dev.
+ Specie.Code                  (Intercept)                           0.200537 0.44781 
+ Specie.Code.session          (Intercept)                           0.110581 0.33254 
+ Specie.Code.session.Location (Intercept)                           0.044341 0.21057 
+ year.session                 (Intercept)                           0.015569 0.12478 
+ year.session.Location        (Intercept)                           0.032118 0.17922 
+ Specie.Code.Location         (Intercept)                           0.240568 0.49048 
+ Specie.Code.Location.1       as.ordered(time_cts)0.333333333333333 0.165644 0.40699 
+ Specie.Code.Location.2       time_cts                              0.001633 0.04041 
+
+```{r}
+0.200537+0.110581+0.044341+0.015569+0.032118+0.240568+0.165644+0.001633
+0.190261+0.151596+0.026476+0.257292+0.196650+0.001756
+```
+
+
+Conditional model:
+ Groups                 Name                                  Variance Std.Dev. Corr      
+ Specie.Code            (Intercept)                           0.190261 0.43619            
+ Specie.Code.session    (Intercept)                           0.151596 0.38935            
+ year.session           (Intercept)                           0.026476 0.16272            
+ Specie.Code.Location   (Intercept)                           0.257292 0.50724            
+ Specie.Code.Location.1 as.ordered(time_cts)0.333333333333333 0.196650 0.44345  0.33 (ar1)
+ Specie.Code.Location.2 time_cts                              0.001756 0.04191            
+
+
+```{r}
+fam_nb2 <- "nbinom2"
+fit_nb2_corr_FULL_RF <- glmmTMB(form_glmm_ar1_FULL_RF,
+                        family = fam_nb2,
+                        data = ecuador)
+diagnose(fit_nb2_corr_FULL_RF)
+
+fit_nb2_corr_no_sppSess <- update(fit_nb2_corr_FULL_RF, 
+                                   . ~ . -(1|Specie.Code:session))
+fit_nb2_corr_no_sppSessLoc <- update(fit_nb2_corr_FULL_RF, 
+                                   . ~ . -(1|Specie.Code:session:Location))
+
+fit_nb2_corr_no_yrSess <- update(fit_nb2_corr_FULL_RF, 
+                                   . ~ . -(1|year:session))
+
+fit_nb2_corr_no_yrSessLoc <- update(fit_nb2_corr_FULL_RF, 
+                                   . ~ . -(1|year:session:Location))
+
+
+bbmle::AICtab(fit_nb2_corr_FULL_RF,
+              fit_nb2_corr_no_sppSess,
+              fit_nb2_corr_no_sppSessLoc,
+              fit_nb2_corr_no_yrSess,    # very good
+              fit_nb2_corr_no_yrSessLoc)
+```
+
+
+```{r}
+bbmle::AICtab(fit_pois_corr_FULL_RF,
+              fit_pois_corr_no_sppSess,
+              fit_pois_corr_no_sppSessLoc,
+              
+              fit_pois_corr_orig,
+              
+              fit_pois_drop_randslope,
+              fit_pois_drop_randslope_from_orig,
+              #fit_nb2_corr_FULL_RF,
+              fit_nb2_corr_no_sppSess,
+              fit_nb2_corr_no_sppSessLoc,
+              fit_nb2_corr_no_yrSess#,     # very good
+              #fit_nb2_corr_no_yrSessLoc
+              )
+```
+
+
+
+```{r}
+model_list <- list(fit_pois_corr_FULL_RF = fit_pois_corr_FULL_RF,
+              fit_pois_corr_no_sppSess = fit_pois_corr_no_sppSess,
+              fit_pois_corr_no_sppSessLoc = fit_pois_corr_no_sppSessLoc,
+              fit_pois_corr_orig = fit_pois_corr_orig,
+              fit_pois_drop_randslope = fit_pois_drop_randslope,
+              fit_pois_drop_randslope_from_orig = fit_pois_drop_randslope_from_orig,
+              
+              #fit_nb2_corr_FULL_RF,
+              fit_nb2_corr_no_sppSess = fit_nb2_corr_no_sppSess,
+              fit_nb2_corr_no_sppSessLoc = fit_nb2_corr_no_sppSessLoc,
+              fit_nb2_corr_no_yrSess = fit_nb2_corr_no_yrSess#,    # very good
+              #fit_nb2_corr_no_yrSessLoc
+              )
+```
+
+
+
+```{r}
+overdisp.stat <- rep(NA,length(model_list))
+overdisp.p <- overdisp.stat
+
+for(i in 2:length(list)){
+  x <- try(DHARMa::testDispersion(model_list[[i]], type = "DHARMa"), silent = T)
+  
+  overdisp.stat[i] <- x$statistic
+  overdisp.p[i] <- x$p.value
+}
+```
+
+
+```{r}
+simulationOutput <- DHARMa::simulateResiduals(fittedModel = fit_nb2_corr_no_yrSess, 
+                                      refit = F,
+                                      plot = F)
+
+
+plot(simulationOutput)
+DHARMa::testDispersion(simulationOutput)
+DHARMa::testUniformity(simulationOutput)
+DHARMa::testZeroInflation(simulationOutput)
+DHARMa::testOutliers(fit_nb2_corr_no_yrSess,
+                     type = "bootstrap")
+
+
+ecuador$resids <- resid(simulationOutput)
+```
+

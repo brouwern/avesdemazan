@@ -1,0 +1,273 @@
+---
+title: "Untitled"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+**NOTE: these random slopes are deviations from the OVERALL slope parameter of the model!**
+
+
+## Process random slopes
+
+
+Extract SD / var using TMB::sdreport()
+
+"After optimization of an AD model, sdreport() is used to calculate standard deviations of all model parameters"
+
+* `getJointPrecision	= Optional`. Return full joint precision matrix of random effects and parameters?
+  + From `sdreport` doc:"The full joint covariance is not returned by default, because it may require large amounts of memory. It may be obtained by specifying `getJointPrecision=TRUE`, ..."
+* `bias.correct`	= logical indicating if bias correction should be applied
+
+Data
+
+
+```{r}
+# This is the best model structure
+data(fit_pois_corr_FULL_RF)
+
+# This is a reduced model structure
+data(fit_pois_corr_only_sppLoc)
+
+# mis-specified models, for comparison
+data(fit_nb2_corr_misspec)  # nb mis-spec
+data(fit_pois_corr_misspec) # pois mis-spec
+
+
+```
+
+
+
+```{r}
+str_ranef <- function(mod){
+  str(ranef(mod)[["cond"]],max.level = 1, vec.leng = 1, digits.d =2,
+      give.length = F, give.head = F)
+}
+```
+
+
+```{r}
+str_ranef(fit_pois_corr_FULL_RF)
+str_ranef(fit_pois_corr_only_sppLoc)# NEEDS UPDATE
+str_ranef(fit_nb2_corr_misspec)
+str_ranef(fit_pois_corr_misspec)
+
+diagnose(fit_pois_corr_FULL_RF)
+diagnose(fit_pois_corr_only_sppLoc)  # issues
+diagnose(fit_nb2_corr_misspec) 
+diagnose(fit_pois_corr_misspec) 
+```
+
+```{r}
+summary(fit_pois_corr_FULL_RF)$varcor
+summary(fit_pois_corr_only_sppLoc)$varcor
+summary(fit_nb2_corr_misspec)$varcor
+summary(fit_pois_corr_misspec)$varcor
+```
+
+
+```{r}
+summary(fit_pois_corr_FULL_RF)$coefficients$cond
+summary(fit_pois_corr_FULL_RF)$varcor
+```
+
+
+Get CIs
+
+```{r}
+# add metadata
+data("Ecuador_Species_List")
+
+
+str(ranef(fit_nb2_corr_misspec),1)
+
+str(ranef(fit_nb2_corr_misspec)[["cond"]],1)
+
+slopes_FULL_RF <- glmmTMB_randslope_ci(fit_pois_corr_FULL_RF, 
+                                           randeff = "Specie.Code:Location")
+slopes_only_sppLoc <- glmmTMB_randslope_ci(fit_pois_corr_only_sppLoc, 
+                                           randeff = "Specie.Code:Location")
+
+slopes_nb2_misspec <- glmmTMB_randslope_ci(fit_nb2_corr_misspec, 
+                                           randeff = "Specie.Code:Location")
+slopes_pois_misspec <- glmmTMB_randslope_ci(fit_pois_corr_misspec, 
+                                           randeff = "Specie.Code:Location")
+
+
+
+
+slopes_FULL_RF_final <- add_mazan_metadata(spp_list = Ecuador_Species_List,
+                                   slopes = slopes_FULL_RF)
+slopes_only_sppLoc_final <- add_mazan_metadata(spp_list = Ecuador_Species_List,
+                                   slopes = slopes_only_sppLoc)
+
+slopes_nb2_misspec_final <- add_mazan_metadata(spp_list = Ecuador_Species_List,
+                                   slopes = slopes_nb2_misspec)
+
+    
+slopes_pois_misspec_final <- add_mazan_metadata(spp_list = Ecuador_Species_List,
+                                   slopes = slopes_pois_misspec)
+
+```
+
+```{r}
+summary(slopes_FULL_RF_final$Sig)
+summary(slopes_only_sppLoc_final$Sig)
+summary(slopes_nb2_misspec_final$Sig)
+summary(slopes_pois_misspec_final$Sig)
+```
+
+
+
+```{r}
+slopes_FULL_RF_final[1,c("time_lb2","time_cts_tot","time_ub2")]
+par(mfrow = c(1,1), mar = c(2,2,0,0))
+plot(slopes_FULL_RF_final$time_cts_tot , slopes_only_sppLoc_final$time_cts_tot ,
+     xlim = c(-.52185,.5),
+     ylim = c(-.52185,.5))
+segments(x0 = slopes_FULL_RF_final$time_cts_tot,
+         x1 = slopes_FULL_RF_final$time_cts_tot,
+         y0 = slopes_FULL_RF_final$time_lb2,
+         y1 = slopes_FULL_RF_final$time_ub2)
+segments(y0 = slopes_only_sppLoc_final$time_cts_tot,
+         y1 = slopes_only_sppLoc_final$time_cts_tot,
+         x0 = slopes_only_sppLoc_final$time_lb2,
+         x1 = slopes_only_sppLoc_final$time_ub2)
+abline(a = 0, b = 1)
+abline(v = 0)
+abline(h = 0)
+
+plot(slopes_FULL_RF_final$time_cts_tot , slopes_nb2_misspec_final$time_cts_tot )
+abline(a = 0, b = 1)
+abline(v = 0)
+abline(h = 0)
+
+plot(slopes_FULL_RF_final$time_cts_tot , slopes_pois_misspec_final$time_cts_tot ,
+     xlim = c(-.52185,0.0543),
+     ylim = c(-.52185,0.0543))
+abline(a = 0, b = 1, lwd = 3, col =2)
+abline(v = 0, b = 1, lwd = 3, col =2)
+abline(h = 0, b = 1, lwd = 3, col =2)
+segments(x0 = slopes_FULL_RF_final$time_cts_tot,
+         x1 = slopes_FULL_RF_final$time_cts_tot,
+         y0 = slopes_FULL_RF_final$time_lb2,
+         y1 = slopes_FULL_RF_final$time_ub2, col =4)
+segments(y0 = slopes_pois_misspec_final$time_cts_tot,
+         y1 = slopes_pois_misspec_final$time_cts_tot,
+         x0 = slopes_pois_misspec_final$time_lb2,
+         x1 = slopes_pois_misspec_final$time_ub2)
+
+```
+
+
+
+
+
+
+data()
+
+# This is a reduced model structure
+data()
+
+# mis-specified models, for comparison
+data()  # nb mis-spec
+data() # pois mis-spec
+
+```{r}
+fit_pois_corr_FULL_RF_boot <- lme4::bootMer(fit_pois_corr_FULL_RF, 
+                    FUN=boot_fnxn_randslopes_combo,
+                    nsim=1000, .progress="txt",
+                    use.u = FALSE, 
+                    re.form = NA)
+
+fit_pois_corr_only_sppLoc_boot <- lme4::bootMer(fit_pois_corr_only_sppLoc, 
+                    FUN=boot_fnxn_randslopes_combo,
+                    nsim=500, .progress="txt",
+                    use.u = FALSE, 
+                    re.form = NA)
+
+fit_nb2_corr_misspec_boot <- lme4::bootMer(fit_nb2_corr_misspec, 
+                    FUN=boot_fnxn_randslopes_combo,
+                    nsim=2000, .progress="txt",
+                    use.u = FALSE, 
+                    re.form = NA)
+
+fit_pois_corr_misspec_boot <- lme4::bootMer(fit_pois_corr_misspec, 
+                    FUN=boot_fnxn_randslopes_combo,
+                    nsim=500, .progress="txt",
+                    use.u = FALSE, 
+                    re.form = NA)
+
+```
+
+```{r}
+hist(fit_nb2_corr_misspec_boot$t[,1])
+x <- rep(NA, length(fit_nb2_corr_misspec_boot$t[,1]))
+for(i in 1: length(x))
+{
+  x[i] <- mean(fit_nb2_corr_misspec_boot$t[1:i,1])
+}
+plot(x, xlim )
+```
+
+
+```{r}
+
+mod_working <- fit_nb2_corr_misspec
+ci_out_working <- fit_nb2_corr_misspec_boot
+boot.ci(ci_out_working, type = "norm", index = 1) 
+
+summary_out <- summary(ci_out_working)
+B_best_randslopes <- ranef(mod_working)$cond$`Specie.Code:Location`$time_cts
+B_labels <- rownames(ranef(mod_working)$cond$`Specie.Code:Location`)
+B.n <- length(B_best_randslopes)
+
+fixef_beta <- fixef(mod_working)$cond[["time_cts"]]
+
+boot_table1 <- data.frame(B_labels,
+      B_best_randslopes,
+      fixef_beta,
+      Beta_sum  = B_best_randslopes + fixef_beta,
+      original = summary_out$original,
+      bootBias = summary_out$bootBias,
+      bootSE = summary_out$bootSE,
+     bootMed =  summary_out$bootMed)
+round(boot_table1[,-1],4)
+
+
+
+ci_table <- data.frame(norm.lwr = rep(NA,  dim(boot_table1)[1]),
+                       norm.upr = NA, 
+                       basic.lwr = NA,
+                       basic.upr = NA,
+                       perc.lwr = NA,
+                       perc.upr = NA,
+                      norm.sig = NA,
+                     basic.sig = NA,
+                     perc.sig = NA)
+
+for(i in 1:dim(ci_table)[1]){
+  bootci.out <- boot.ci(fit_pois_corr_FULL_RF_boot, 
+                        index = i,
+                        type = c("norm","basic","perc"))  #
+x <- bootci.out$normal[2:3]
+x.sig <- ifelse(sign(x[1])==sign(x[2]),"*","")
+y <- bootci.out$basic[4:5]
+y.sig <- ifelse(sign(y[1])==sign(y[2]),"*","")
+z <- bootci.out$percent[4:5]
+z.sig <- ifelse(sign(z[1])==sign(z[2]),"*","")
+ci_table[i,1:6 ] <- c(x,y,z)
+ci_table[i,-c(1:6)] <- c(x.sig,y.sig,z.sig)
+}
+
+
+slopes_nb2_misspec_final[48:49,c("id","time_cts","time_cts_tot","time_lb2","time_ub2","Sig", "Species_SciName")]
+boot_table1[48:49,]
+ci_table[48:49,]
+```
+

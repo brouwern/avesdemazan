@@ -12,30 +12,35 @@ editor_options:
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>", 
+  warning = F
 )
 ```
 
-```{r setup}
+## Introduction
+
+Model community abundance to test functioning of glmmTMB and determine if there is an overall decline in total captures over time.
+
+
+
+
+```{r setup, warning = F, message = F}
 library(avesdemazan)
 
 # Model fitting
 library(lme4)       # glmer() for glmm
 library(glmmTMB)    # glmm with AR-1  
-library(blme)       # bglmer (used?)
+# library(blme)       # bglmer (used?)
 
-# Model evaluation
-library(afex)       # functionall_fit()
-library(multcomp)   
-library(emmeans)
-library(bbmle)      # aictab
-library(arm)        # se.fit()
+# # Model evaluation
+# library(afex)       # functionall_fit()
+# library(multcomp)   
+# library(emmeans)
+# library(bbmle)      # aictab
+# library(arm)        # se.fit()
 
 # Result visualization
 library(ggplot2)    
-library(ggstance)  
-library(grid)
-library(gridExtra)  
 
 #  markdown etc
 library(knitr)    
@@ -45,20 +50,39 @@ library(knitr)
 
 ## Model TOTAL individuals captures 
 
+Load data.  All individuals captures within a session totaled up, ignoring species. 
 
 ```{r}
 data(ecuador_tot)
 ```
 
 
+The data is 86  by 6
 ```{r}
-names(ecuador_tot)
-head(ecuador_tot,10)
+dim(ecuador_tot)
+```
+
+The data frame looks like this:
+```{r}
+head(ecuador_tot, 10)
 ```
 
 
-This shows total captures of species that are included in the GLMM, NOT total captures of ALL species
 ```{r}
+summary(ecuador_tot)
+```
+
+
+
+**NOTE**: This shows total captures of species that are *included in the GLMM*, NOT total captures of ALL species. Species that did not have enough captures to meet the inclusion critera are not included, and unbanded individuals are not included.
+
+<!-- TODO: create a datarame with ALL captures regarless of whether they are in the GLMM or not -->
+
+
+Split data by `session` and plot by `year`.  This is **NOT** how the data are modeled because time is set up as a continuous variable.
+
+
+```{r, fig.cap = "Within-season changes in total captures.  Declines appear to be occuring in all seasons except SEGUNDA-LLAV"}
 ggplot(data = ecuador_tot,
         aes(y = N/tot_net_hours*1000,
             x = year,
@@ -69,50 +93,110 @@ ggplot(data = ecuador_tot,
   theme_bw()
 ```
 
-
-### glmer
-
-```{r}
-glm_fit <- glm(N ~ 1 + time_cts +   # Null
-                     Location +                               # Location
-                     session + 
-                     time_cts*Location*session +                         # Continuous time variable
-                     offset(log(tot_net_hours)),
-                   family = poisson,
-                   data = ecuador_tot)
-
-# I haven't really thought about this modl
-glmm_fit <- lme4::glmer(N ~ 1 + time_cts +   # Null
-                     #Location +                               # Location
-                     #(1|session) +
-                     #(1|Location) +
-                     (1|year) +
-                     (time_cts|session:Location) + 
-                     #ns(time_cts,3) +                         # Continuous time variable
-                     offset(log(tot_net_hours)),
-                   family = poisson,
-                   data = ecuador_tot)
-summary(glmm_fit)
+Ignore sessions and plot by `time_cts`.
+```{r, fig.cap="Changes in abundance using time as a continous variable"}
+ggplot(data = ecuador_tot,
+        aes(y = N/tot_net_hours*1000,
+            x = time_cts)) +
+  geom_point() +
+  facet_wrap(~Location) + 
+  geom_smooth(method = lm,se = F) + 
+  theme_bw() 
 ```
 
 
-### glmmTMB
+## Models of community abundance change
 
-this stucture is currently different from the glmer() vs above
+### GLM model of community abundance change
+
+Basic GLM for model exploration.
+
 ```{r}
+glm_fit <- glm(N ~ 1 + time_cts +   # continuous time 
+                     Location +     # Location
+                     time_cts*Location +  # 
+                     offset(log(tot_net_hours)),
+                   family = poisson,
+                   data = ecuador_tot)
+```
 
 
-# Fit negative binomial
-library(splines)
-fit_nb2 <- glmmTMB(N ~ 1 + time_cts +   # Null
-                     Location +                               # Location
-                     session + 
-                     #ns(time_cts,3) +                         # Continuous time variable
+Time is significant, but with no time_cts*:Location interaction.
+```{r}
+summary(glm_fit)
+```
+
+
+
+### Basic GLMM  with lme4::glmer()
+
+Poisson GLMM; no autocorrelation, poisson errors.
+
+### glmer() Modeling with fixed effects for time*location
+
+```{r}
+glmm_fit01 <- lme4::glmer(N ~ 1 + time_cts +   # Null
+                          Location +
+                          Location*time_cts +
+                     #(1|session) +
+                     #(1|Location) +
+                     (1|year:session) + # all captures w/in a session-year
+                     (1|year:session:Location) + # all caps w/in a session-year-loc  
+                     #(0+time_cts|Location) + # rand slope for location
                      offset(log(tot_net_hours)),
                    family = poisson,
                    data = ecuador_tot)
 
-summary(fit_nb2)
+summary(glmm_fit01)
+```
+
+### glmer() Modeling with ranefs for time*location
+
+Not significant
+```{r}
+glmm_fit02 <- lme4::glmer(N ~ 1 + time_cts +   # Null
+                          #Location +
+                          #Location*time_cts +
+                     #(1|session) +
+                     #(1|Location) +
+                     (1|year:session) + # all captures w/in a session-year
+                     (1|year:session:Location) + # all caps w/in a session-year-loc  
+                     (0+time_cts|Location) + # rand slope for location
+                     offset(log(tot_net_hours)),
+                   family = poisson,
+                   data = ecuador_tot)
+
+summary(glmm_fit02)
+
+# fixef(glmm_fit)[2]
+# slopes_loc <- fixef(glmm_fit)[2]+ranef(glmm_fit)$Location
+# 
+# CI.up
+# CI.lo <- fixef(glmm_fit)[2]-ranef(glmm_fit)$Location
+# 
+# 
+# +se.ranef(glmm_fit)$Location*2
+# fixef(glmm_fit)[2]-se.ranef(glmm_fit)$Location*2
+```
+
+
+
+### Poisson glmmTMB without ar1
+
+
+```{r}
+library(splines)
+glmmTMB_poisson <- glmmTMB(N ~ 1 + time_cts +   # Null
+                          Location +
+                          Location*time_cts +
+                     (1|year:session) + # all captures w/in a session-year
+                     (1|year:session:Location) + # all caps w/in a session-year-loc  
+                     (0+time_cts|Location) + # rand slope for location
+                     offset(log(tot_net_hours)),
+                   family = poisson,
+                   data = ecuador_tot)
+
+summary(glmmTMB_poisson)
 ```
 
 

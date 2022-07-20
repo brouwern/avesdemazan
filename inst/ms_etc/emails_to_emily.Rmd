@@ -1,0 +1,76 @@
+---
+title: "Emails"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Jun 24, 2021, 12:42 PM
+
+....
+
+Most of the models have the random effects as
+```{r, eval = f}
+... + (time_cts + 0|Specie.Code:Location) +         
+ar1(as.ordered(time_cts) + 
+0|Specie.Code:Location)     # key line
+```
+
+
+but the **negbin-2** model (which was the best model) was
+```{r, eval = fale}
+(time_cts + 0|Specie.Code:Location) +         
+ar1(as.ordered(time_cts) +
+0|Specie)                   # key line
+```
+
+
+which has no ":Location" in the ar1() statement
+<!-- This files as species-level random effect rather than a species-location random effect -->
+
+This is the only model in the code I looked at was like this.
+
+Updating the negbin-2 model with ":Location" to be like the others results in a model that has some issues
+
+* no errors thrown when running the model
+* "dispersion parameter" results by summary() is HUGE:  2.78e+06    
+  + (the dispersion parameter accessed through the model object is 14.83931; 1 to 2 is normal I think ; not sure if 2.78e+06<-->14.83931 is a transformation;
+* Bolker's experimental Hessian tests say the dispersion parameter is bad
+* I think if I adjust the optimizer I can get an error thrown re. the hessian when I run the model, but haven't reproduced that yet using your original code
+
+Your poisson model with AR1, in contrast to the negbin behaves nicely (negbin 1 behaves just as poorly).
+Poisson is slightly overdispered (dispersion = 1.801, p-value = 0.064) according to DHARMa (super cool glmm diagnostics package I always forget to use....), but so are all the other models.
+
+The poisson model (ok I have to link to this https://www.youtube.com/watch?v=UoJxBEQRLd0 ) also seems to let me toss in some more relevant random effect.  
+
+The resulting poisson models are better than the (problematic) negbin models (I don't yet yet understand why negbin is so much more problematic than poisson in all contexts).
+
+Anyway, the model I just arrived at is below.  Differences from your best model 
+
+* Poisson, not nb2
+* 1 new random effects to represent within-year correlations (year:session , year:session:species)
+* has different ar1 structure from your best negbin model (but same as your Poison and other models)
+
+
+glmmTMB(N ~ 1 +                                                   
+          Location +                                              
+          time_cts +                                   
+          (1|Specie.Code) +
+          (1|year:session) + # **new rf**
+          (1|year:session:Specie.Code) + # **new rf**
+          (1|Specie.Code:Location) +                 
+          (time_cts + 0|Specie.Code:Location) +
+          ar1(as.ordered(time_cts) + 0|Specie.Code:Location) +   # **has location**                            
+          offset(log(tot_net_hours)),
+        family = poison, # **Poisson**
+        data = ecuador)
+
+
+Any thoughts on this?
+  
+The only thing that gives me pause is that I always think of Poisson as an ideal that is never met, but these data seem Poisson enough.  
+
+I'm curious to see if this actually changes anything.  There's an interesting dynamic ecology blog post on model (mis-) specification and how we need to make sure models are robust to specification because we can never know if we're fitting the right model, or can't fit the right model b/c of compuational limitations
+https://dynamicecology.wordpress.com/2021/06/21/the-death-knell-for-the-one-right-way-approach-to-statistics-and-the-need-for-sturdy-statistics/
